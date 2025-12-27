@@ -121,10 +121,10 @@ async def version():
     return get_version_info()
 
 
-# Import and include API routers here as they are created
-# Example:
-# from app.api.v1 import router as api_v1_router
-# app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
+# Import and include API routers
+from app.api.v1 import router as api_v1_router
+
+app.include_router(api_v1_router.router, prefix=settings.API_V1_PREFIX)
 
 if __name__ == "__main__":
     import uvicorn
