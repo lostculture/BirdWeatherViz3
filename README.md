@@ -90,10 +90,36 @@ BirdWeatherViz3/
 
 ### Prerequisites
 
-- Docker 20.10+
-- Docker Compose 2.0+ (optional, for development)
+- **For Docker:** Docker 20.10+
+- **For Local Development:** Python 3.11+, Node.js 18+, npm
 
-### Option 1: Docker (Production)
+### Option 1: Automated Test Scripts (Fastest for Testing)
+
+**Recommended for first-time testing!**
+
+We provide automated test scripts that handle all setup:
+
+```bash
+# Cross-platform (Python)
+python test.py
+
+# Linux/Mac (Bash)
+./test.sh
+
+# Windows (PowerShell)
+.\test.ps1
+```
+
+These scripts automatically:
+- ✓ Check dependencies
+- ✓ Install requirements
+- ✓ Start backend on http://localhost:8000
+- ✓ Start frontend on http://localhost:3000
+- ✓ Open your browser
+
+**See [TESTING.md](TESTING.md) for detailed testing instructions.**
+
+### Option 2: Docker (Production)
 
 ```bash
 # Build the image
@@ -111,7 +137,7 @@ docker run -d \
 # Access at http://localhost:8080
 ```
 
-### Option 2: Docker Compose (Development)
+### Option 3: Docker Compose (Development)
 
 ```bash
 # Start all services
@@ -120,7 +146,9 @@ docker-compose -f docker/docker-compose.yml up --build
 # Access at http://localhost:8080
 ```
 
-### Option 3: Local Development
+### Option 4: Manual Local Development
+
+For manual setup without the test scripts:
 
 #### Backend Setup
 
