@@ -91,12 +91,13 @@ async def health_check():
     Returns application health status and version information.
     """
     from app.db.session import engine
+    from sqlalchemy import text
 
     # Check database connection
     db_status = "connected"
     try:
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
     except Exception as e:
         db_status = f"error: {str(e)}"
         logger.error(f"Database health check failed: {e}")

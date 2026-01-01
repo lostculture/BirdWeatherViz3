@@ -31,8 +31,8 @@ class Detection(Base):
     species_id = Column(Integer, ForeignKey("species.id"), nullable=False, index=True)
 
     # BirdWeather detection metadata
-    detection_id = Column(Integer, unique=True, nullable=False, index=True,
-                         comment="BirdWeather detection ID")
+    detection_id = Column(Integer, unique=True, nullable=True, index=True,
+                         comment="BirdWeather detection ID (null for manual imports)")
     timestamp = Column(DateTime(timezone=True), nullable=False, index=True,
                       comment="Detection timestamp")
     confidence = Column(Float, nullable=False,

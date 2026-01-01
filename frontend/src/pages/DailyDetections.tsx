@@ -6,20 +6,55 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { detectionsApi, speciesApi } from '../api'
+import { detectionsApi, speciesApi, weatherApi } from '../api'
 import { LineChart } from '../components/charts'
 import type { DailyDetectionCount, NewSpeciesThisWeek, DatabaseStats } from '../types/api'
+import type { WeatherRecord } from '../api/weather'
+import type { Data } from 'plotly.js'
 
 const DailyDetections: React.FC = () => {
   const [dailyData, setDailyData] = useState<DailyDetectionCount[]>([])
   const [newSpecies, setNewSpecies] = useState<NewSpeciesThisWeek[]>([])
   const [stats, setStats] = useState<DatabaseStats | null>(null)
+  const [weather, setWeather] = useState<WeatherRecord | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
+    syncWeatherInBackground()
   }, [])
+
+  const syncWeatherInBackground = async () => {
+    try {
+      // Check if we have a weather station configured
+      const stationSetting = await weatherApi.getStationSetting()
+      if (stationSetting.station_id) {
+        // Check if we need to sync (only if there are missing days)
+        const stats = await weatherApi.getStats()
+        if (stats.missing_days > 0) {
+          // Sync weather silently in background
+          await weatherApi.sync()
+          // Reload weather after sync
+          loadWeather()
+        }
+      }
+    } catch (err) {
+      // Silent fail for background sync
+      console.log('Background weather sync skipped:', err)
+    }
+  }
+
+  const loadWeather = async () => {
+    try {
+      const records = await weatherApi.getRecent(1)
+      if (records.length > 0) {
+        setWeather(records[0])
+      }
+    } catch (err) {
+      console.log('Failed to load weather:', err)
+    }
+  }
 
   const loadData = async () => {
     try {
@@ -35,6 +70,9 @@ const DailyDetections: React.FC = () => {
       setDailyData(daily)
       setNewSpecies(species)
       setStats(statsData)
+
+      // Also load weather
+      loadWeather()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -43,7 +81,7 @@ const DailyDetections: React.FC = () => {
   }
 
   // Prepare chart data
-  const prepareChartData = () => {
+  const prepareChartData = (): Data[] => {
     // Group by station
     const stationGroups: Record<string, DailyDetectionCount[]> = {}
     dailyData.forEach((item) => {
@@ -58,8 +96,8 @@ const DailyDetections: React.FC = () => {
       x: data.map((d) => d.detection_date),
       y: data.map((d) => d.detection_count),
       name: stationName,
-      type: 'scatter',
-      mode: 'lines+markers',
+      type: 'scatter' as const,
+      mode: 'lines+markers' as const,
     }))
   }
 
@@ -112,6 +150,51 @@ const DailyDetections: React.FC = () => {
         </div>
       )}
 
+      {/* Weather Card */}
+      {weather && (
+        <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg shadow p-6 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm opacity-80">
+                Weather for {new Date(weather.weather_date).toLocaleDateString()}
+              </div>
+              <div className="text-2xl font-bold mt-1">
+                {weather.weather_description || 'N/A'}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-4xl font-bold">
+                {weather.temp_avg !== null ? `${Math.round(weather.temp_avg)}°F` : '--'}
+              </div>
+              <div className="text-sm opacity-80">
+                {weather.temp_min !== null && weather.temp_max !== null
+                  ? `${Math.round(weather.temp_min)}° / ${Math.round(weather.temp_max)}°`
+                  : ''
+                }
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-4 mt-4 pt-4 border-t border-white/20">
+            <div className="text-center">
+              <div className="text-sm opacity-80">Sunrise</div>
+              <div className="font-semibold">{weather.sunrise?.substring(0, 5) || '--'}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm opacity-80">Sunset</div>
+              <div className="font-semibold">{weather.sunset?.substring(0, 5) || '--'}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm opacity-80">Humidity</div>
+              <div className="font-semibold">{weather.humidity !== null ? `${Math.round(weather.humidity)}%` : '--'}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm opacity-80">Wind</div>
+              <div className="font-semibold">{weather.wind_speed !== null ? `${Math.round(weather.wind_speed)} mph` : '--'}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Daily Detections Chart */}
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-semibold mb-4">Daily Detection Trends</h2>
@@ -119,9 +202,9 @@ const DailyDetections: React.FC = () => {
           <LineChart
             data={prepareChartData()}
             layout={{
-              title: 'Daily Detections by Station',
-              xaxis: { title: 'Date' },
-              yaxis: { title: 'Number of Detections' },
+              title: { text: 'Daily Detections by Station' },
+              xaxis: { title: { text: 'Date' } },
+              yaxis: { title: { text: 'Number of Detections' } },
               height: 400,
             }}
           />

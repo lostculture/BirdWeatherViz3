@@ -5,9 +5,9 @@ Request/response models for station endpoints.
 Version: 1.0.0
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Annotated
 
 
 class StationBase(BaseModel):
@@ -23,21 +23,17 @@ class StationCreate(StationBase):
     """Schema for creating a new station."""
 
     station_id: int = Field(..., description="BirdWeather station ID")
-    api_token: str = Field(..., min_length=10, max_length=500, description="BirdWeather API token")
-    active: bool = Field(True, description="Include in analysis")
-    auto_update: bool = Field(True, description="Enable auto-updates")
+    active: bool = Field(default=True, description="Include in analysis")
 
 
 class StationUpdate(BaseModel):
     """Schema for updating station information."""
 
     name: Optional[str] = Field(None, max_length=200)
-    api_token: Optional[str] = Field(None, min_length=10, max_length=500)
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     timezone: Optional[str] = Field(None, max_length=50)
     active: Optional[bool] = None
-    auto_update: Optional[bool] = None
 
 
 class StationResponse(StationBase):

@@ -31,8 +31,8 @@ class Station(Base):
     name = Column(String(200), comment="Station name/label")
 
     # API credentials (should be encrypted in production)
-    api_token = Column(String(500), nullable=False,
-                      comment="BirdWeather API token (encrypted)")
+    api_token = Column(String(500), nullable=True,
+                      comment="BirdWeather API token (encrypted, optional for public stations)")
 
     # Location
     latitude = Column(Float, comment="Station latitude")
@@ -83,6 +83,7 @@ class Station(Base):
             "auto_update": self.auto_update,
             "last_update": self.last_update.isoformat() if self.last_update else None,
             "last_detection_id": self.last_detection_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
         if include_token:

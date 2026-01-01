@@ -8,6 +8,7 @@
 import React from 'react'
 import Plot from 'react-plotly.js'
 import type { PlotParams } from 'react-plotly.js'
+import type { Data } from 'plotly.js'
 
 interface RosePlotProps {
   data: PlotParams['data']
@@ -23,12 +24,12 @@ const RosePlot: React.FC<RosePlotProps> = ({
   className = '',
 }) => {
   // Convert data to polar bar plot format
-  const polarData = data.map((trace) => ({
+  const polarData: Data[] = data.map((trace) => ({
     ...trace,
     type: 'barpolar' as const,
-  }))
+  }) as Data)
 
-  const defaultLayout: Partial<PlotParams['layout']> = {
+  const defaultLayout = {
     autosize: true,
     polar: {
       radialaxis: {
@@ -43,7 +44,7 @@ const RosePlot: React.FC<RosePlotProps> = ({
     },
     showlegend: false,
     ...layout,
-  }
+  } as Partial<PlotParams['layout']>
 
   const defaultConfig: Partial<PlotParams['config']> = {
     responsive: true,

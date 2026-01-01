@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react'
 import { speciesApi } from '../api'
 import { LineChart } from '../components/charts'
 import type { SpeciesDiversityTrend, SpeciesDiscoveryCurve } from '../types/api'
+import type { Data } from 'plotly.js'
 
 const SpeciesAnalysis: React.FC = () => {
   const [diversityData, setDiversityData] = useState<SpeciesDiversityTrend[]>([])
@@ -39,36 +40,36 @@ const SpeciesAnalysis: React.FC = () => {
     }
   }
 
-  const prepareDiversityChart = () => {
+  const prepareDiversityChart = (): Data[] => {
     return [
       {
         x: diversityData.map((d) => d.detection_date),
         y: diversityData.map((d) => d.unique_species_count),
         name: 'Daily Unique Species',
-        type: 'scatter',
-        mode: 'lines',
+        type: 'scatter' as const,
+        mode: 'lines' as const,
         line: { color: '#3b82f6', width: 1 },
       },
       {
         x: diversityData.map((d) => d.detection_date),
         y: diversityData.map((d) => d.seven_day_avg),
         name: '7-Day Average',
-        type: 'scatter',
-        mode: 'lines',
+        type: 'scatter' as const,
+        mode: 'lines' as const,
         line: { color: '#ef4444', width: 2 },
       },
     ]
   }
 
-  const prepareDiscoveryChart = () => {
+  const prepareDiscoveryChart = (): Data[] => {
     return [
       {
         x: discoveryData.map((d) => d.detection_date),
         y: discoveryData.map((d) => d.cumulative_species),
         name: 'Cumulative Species',
-        type: 'scatter',
-        mode: 'lines',
-        fill: 'tozeroy',
+        type: 'scatter' as const,
+        mode: 'lines' as const,
+        fill: 'tozeroy' as const,
         line: { color: '#10b981', width: 2 },
       },
     ]
@@ -109,9 +110,9 @@ const SpeciesAnalysis: React.FC = () => {
           <LineChart
             data={prepareDiversityChart()}
             layout={{
-              title: 'Daily Unique Species Count',
-              xaxis: { title: 'Date' },
-              yaxis: { title: 'Number of Unique Species' },
+              title: { text: 'Daily Unique Species Count' },
+              xaxis: { title: { text: 'Date' } },
+              yaxis: { title: { text: 'Number of Unique Species' } },
               height: 450,
             }}
           />
@@ -132,9 +133,9 @@ const SpeciesAnalysis: React.FC = () => {
           <LineChart
             data={prepareDiscoveryChart()}
             layout={{
-              title: 'Cumulative Species Discovery',
-              xaxis: { title: 'Date' },
-              yaxis: { title: 'Total Unique Species' },
+              title: { text: 'Cumulative Species Discovery' },
+              xaxis: { title: { text: 'Date' } },
+              yaxis: { title: { text: 'Total Unique Species' } },
               height: 450,
             }}
           />

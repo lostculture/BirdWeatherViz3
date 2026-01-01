@@ -24,6 +24,10 @@ from app.schemas.species import (
 router = APIRouter()
 
 
+# ============================================
+# Static routes must come BEFORE dynamic routes
+# ============================================
+
 @router.get("/", response_model=List[SpeciesResponse])
 async def get_species_list(
     station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
@@ -48,26 +52,6 @@ async def get_species_list(
     )
 
     return [SpeciesResponse.from_orm(s) for s in species]
-
-
-@router.get("/{species_id}", response_model=SpeciesResponse)
-async def get_species_by_id(
-    species_id: int,
-    db: Session = Depends(get_db_dependency)
-):
-    """
-    Get a single species by database ID.
-
-    Returns detailed species information including cached statistics.
-    """
-    repo = SpeciesRepository(db)
-    species = repo.get_by_id(species_id)
-
-    if not species:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Species not found")
-
-    return SpeciesResponse.from_orm(species)
 
 
 @router.get("/diversity/trend", response_model=List[SpeciesDiversityTrend])
@@ -188,3 +172,27 @@ async def get_family_stats(
     )
 
     return [FamilyStats(**r) for r in results]
+
+
+# ============================================
+# Dynamic routes with {species_id} parameter
+# ============================================
+
+@router.get("/{species_id}", response_model=SpeciesResponse)
+async def get_species_by_id(
+    species_id: int,
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Get a single species by database ID.
+
+    Returns detailed species information including cached statistics.
+    """
+    repo = SpeciesRepository(db)
+    species = repo.get_by_id(species_id)
+
+    if not species:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Species not found")
+
+    return SpeciesResponse.from_orm(species)

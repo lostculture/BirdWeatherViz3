@@ -181,7 +181,7 @@ class SpeciesRepository(BaseRepository[Species]):
             station_ids: Filter by station IDs
 
         Returns:
-            List of dicts with species info and first_seen_this_week
+            List of dicts with species info, first detection date, and detection count
         """
         # Calculate Monday of this week
         today = date.today()
@@ -192,7 +192,8 @@ class SpeciesRepository(BaseRepository[Species]):
                 Species.species_id,
                 Species.common_name,
                 Species.scientific_name,
-                func.min(Detection.detection_date).label('first_seen_this_week')
+                func.min(Detection.detection_date).label('first_detection_date'),
+                func.count(Detection.id).label('detection_count')
             )
             .join(Detection, Species.id == Detection.species_id)
             .filter(Detection.detection_date >= monday)
@@ -212,9 +213,10 @@ class SpeciesRepository(BaseRepository[Species]):
         return [
             {
                 'species_id': row.species_id,
-                'species_common_name': row.common_name,
-                'species_scientific_name': row.scientific_name,
-                'first_seen_this_week': row.first_seen_this_week
+                'common_name': row.common_name,
+                'scientific_name': row.scientific_name,
+                'first_detection_date': row.first_detection_date,
+                'detection_count': row.detection_count
             }
             for row in results
         ]

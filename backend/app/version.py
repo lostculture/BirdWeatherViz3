@@ -1,16 +1,17 @@
 """
 BirdWeatherViz3 Version Information
 
-Version: 1.0.0
+Version: 1.1.0
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "BirdWeatherViz3 Contributors"
 __description__ = "Next-generation bird detection visualization platform"
 __license__ = "Proprietary"
 
 # Version history
 VERSION_HISTORY = {
+    "1.1.0": "Weather integration, Docker deployment, performance optimizations",
     "1.0.0": "Initial release - FastAPI + React architecture with all visualizations"
 }
 

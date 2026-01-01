@@ -84,7 +84,8 @@ class NewSpeciesThisWeek(BaseModel):
     species_id: int
     common_name: str
     scientific_name: str
-    first_seen_this_week: date = Field(..., description="First detection date this week")
+    first_detection_date: date = Field(..., description="First detection date this week")
+    detection_count: int = Field(default=0, description="Number of detections this week")
 
 
 class SpeciesTimeStats(BaseModel):

@@ -8,7 +8,7 @@ Version: 1.0.0
 from fastapi import APIRouter
 
 # Import endpoint routers as they are created
-from app.api.v1 import detections, species, stations
+from app.api.v1 import detections, species, stations, settings, weather
 
 # Create main v1 router
 router = APIRouter()
@@ -30,6 +30,18 @@ router.include_router(
     stations.router,
     prefix="/stations",
     tags=["stations"]
+)
+
+router.include_router(
+    settings.router,
+    prefix="/settings",
+    tags=["settings"]
+)
+
+router.include_router(
+    weather.router,
+    prefix="/weather",
+    tags=["weather"]
 )
 
 # Health check at v1 level (in addition to root level)

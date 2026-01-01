@@ -52,8 +52,11 @@ class APIClient {
     return response.data
   }
 
-  async post<T>(url: string, data?: Record<string, any>): Promise<T> {
-    const response: AxiosResponse<T> = await this.client.post(url, data)
+  async post<T>(url: string, data?: Record<string, any>, config?: Record<string, any>): Promise<T> {
+    const response: AxiosResponse<T> = await this.client.post(url, data, {
+      ...config,
+      timeout: config?.timeout || 30000,
+    })
     return response.data
   }
 

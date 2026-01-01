@@ -5,7 +5,7 @@ Handles database connections and session lifecycle.
 Version: 1.0.0
 """
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
 
@@ -21,6 +21,24 @@ engine = create_engine(
     pool_pre_ping=True,  # Verify connections before using
     echo=settings.DEBUG  # Log SQL statements in debug mode
 )
+
+
+# SQLite performance optimizations
+if "sqlite" in settings.DATABASE_URL:
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        # WAL mode for better concurrent read/write
+        cursor.execute("PRAGMA journal_mode=WAL")
+        # Increase cache size (negative = KB, so -64000 = 64MB)
+        cursor.execute("PRAGMA cache_size=-64000")
+        # Memory-mapped I/O for faster reads
+        cursor.execute("PRAGMA mmap_size=268435456")  # 256MB
+        # Synchronous NORMAL is safe with WAL and faster
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        # Store temp tables in memory
+        cursor.execute("PRAGMA temp_store=MEMORY")
+        cursor.close()
 
 # Create session factory
 SessionLocal = sessionmaker(

@@ -77,23 +77,28 @@ export interface FamilyStats {
 // Station Types
 export interface StationResponse {
   id: number
-  station_id: string
+  station_id: number  // Fixed: should be number, not string
   name: string
   latitude?: number
   longitude?: number
+  timezone?: string
   active: boolean
+  auto_update: boolean
   last_update?: string
   last_detection_id?: number
-  masked_token?: string
+  api_token_masked?: string
+  created_at?: string
 }
 
 export interface StationCreate {
-  station_id: string
+  station_id: number  // Fixed: should be number, not string
   name: string
-  api_token: string
+  api_token?: string  // Optional - only needed for private stations
   latitude?: number
   longitude?: number
+  timezone?: string
   active?: boolean
+  auto_update?: boolean
 }
 
 export interface StationUpdate {
@@ -101,7 +106,9 @@ export interface StationUpdate {
   api_token?: string
   latitude?: number
   longitude?: number
+  timezone?: string
   active?: boolean
+  auto_update?: boolean
 }
 
 export interface StationStats {

@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react'
 import { speciesApi } from '../api'
 import { BarChart } from '../components/charts'
 import type { FamilyStats } from '../types/api'
+import type { Data } from 'plotly.js'
 
 const SpeciesList: React.FC = () => {
   const [familyData, setFamilyData] = useState<FamilyStats[]>([])
@@ -32,13 +33,13 @@ const SpeciesList: React.FC = () => {
     }
   }
 
-  const prepareFamilyChart = () => {
+  const prepareFamilyChart = (): Data[] => {
     return [
       {
         x: familyData.map((f) => f.family),
         y: familyData.map((f) => f.detection_count),
         name: 'Detections',
-        type: 'bar',
+        type: 'bar' as const,
       },
     ]
   }
@@ -75,9 +76,9 @@ const SpeciesList: React.FC = () => {
           <BarChart
             data={prepareFamilyChart()}
             layout={{
-              title: 'Detections by Bird Family',
-              xaxis: { title: 'Family' },
-              yaxis: { title: 'Total Detections' },
+              title: { text: 'Detections by Bird Family' },
+              xaxis: { title: { text: 'Family' } },
+              yaxis: { title: { text: 'Total Detections' } },
               height: 500,
             }}
           />

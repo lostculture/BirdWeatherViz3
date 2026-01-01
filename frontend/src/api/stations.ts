@@ -57,4 +57,33 @@ export const stationsApi = {
   getComparison: async (): Promise<StationStats[]> => {
     return apiClient.get<StationStats[]>('/stations/comparison/all')
   },
+
+  /**
+   * Sync detection data from BirdWeather API (intelligent sync)
+   */
+  sync: async (stationId: number): Promise<{success: boolean, detections_added: number, message: string}> => {
+    return apiClient.post<{success: boolean, detections_added: number, message: string}>(
+      `/stations/${stationId}/sync`,
+      undefined,
+      { timeout: 300000 }  // 5 minute timeout for intelligent sync
+    )
+  },
+
+  /**
+   * Sync all active stations
+   */
+  syncAll: async (): Promise<{
+    success: boolean
+    total_detections_added: number
+    stations_synced: number
+    details: Array<{station_name: string, detections_added: number, status: string}>
+    weather_synced: boolean
+    weather_days_fetched: number
+  }> => {
+    return apiClient.post(
+      `/stations/sync-all`,
+      undefined,
+      { timeout: 600000 }  // 10 minute timeout for sync all
+    )
+  },
 }

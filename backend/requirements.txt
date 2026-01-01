@@ -12,16 +12,16 @@ aiofiles==23.2.1
 # ========================================
 # Database & ORM
 # ========================================
-sqlalchemy==2.0.25
-alembic==1.13.1
-psycopg2-binary==2.9.9
+sqlalchemy>=2.0.36  # Updated for Python 3.13 compatibility
+alembic>=1.13.0
+# psycopg2-binary==2.9.9  # Commented out for local SQLite testing - requires C++ compiler on Windows
 
 # ========================================
 # Data Validation
 # ========================================
-pydantic==2.5.3
-pydantic-settings==2.1.0
-email-validator==2.1.0
+pydantic>=2.10.0
+pydantic-settings>=2.1.0
+email-validator>=2.1.0
 
 # ========================================
 # Authentication & Security
@@ -39,9 +39,9 @@ httpx==0.26.0
 # ========================================
 # Data Processing
 # ========================================
-pandas==2.1.4
-numpy==1.26.3
-scipy==1.11.4
+pandas>=2.2.0
+numpy>=1.26.0
+scipy>=1.12.0
 
 # ========================================
 # Visualization Support

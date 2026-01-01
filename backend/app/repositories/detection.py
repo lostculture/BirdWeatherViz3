@@ -22,6 +22,36 @@ class DetectionRepository(BaseRepository[Detection]):
     def __init__(self, db: Session):
         super().__init__(Detection, db)
 
+    def get_by_birdweather_id(self, birdweather_detection_id: int, station_id: int) -> Optional[Detection]:
+        """
+        Get detection by BirdWeather detection ID and station ID.
+
+        Args:
+            birdweather_detection_id: BirdWeather API detection ID
+            station_id: Database station ID
+
+        Returns:
+            Detection instance or None if not found
+        """
+        return self.db.query(Detection).filter(
+            Detection.detection_id == birdweather_detection_id,
+            Detection.station_id == station_id
+        ).first()
+
+    def get_latest_detection(self, station_id: int) -> Optional[Detection]:
+        """
+        Get the most recent detection for a station.
+
+        Args:
+            station_id: Database station ID
+
+        Returns:
+            Most recent Detection instance or None
+        """
+        return self.db.query(Detection).filter(
+            Detection.station_id == station_id
+        ).order_by(Detection.timestamp.desc()).first()
+
     def get_daily_detections(
         self,
         start_date: Optional[date] = None,

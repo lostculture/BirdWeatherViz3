@@ -26,8 +26,8 @@ class Species(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
 
     # BirdWeather data
-    species_id = Column(Integer, unique=True, nullable=False, index=True,
-                       comment="BirdWeather species ID")
+    species_id = Column(Integer, unique=True, nullable=True, index=True,
+                       comment="BirdWeather species ID (null for manual imports)")
     common_name = Column(String(200), nullable=False, index=True,
                         comment="Common name of the species")
     scientific_name = Column(String(200), nullable=False, unique=True, index=True,
