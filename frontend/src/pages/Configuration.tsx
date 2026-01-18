@@ -487,15 +487,27 @@ const Configuration: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <h3 className="font-medium mb-2">Upload Taxonomy CSV</h3>
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-3">
                 <input
                   type="file"
                   accept=".csv"
                   onChange={handleTaxonomyUpload}
                   ref={taxonomyFileRef}
                   disabled={uploadingTaxonomy}
-                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  className="hidden"
+                  id="taxonomy-file-input"
                 />
+                <button
+                  type="button"
+                  onClick={() => taxonomyFileRef.current?.click()}
+                  disabled={uploadingTaxonomy}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
+                >
+                  {uploadingTaxonomy ? 'Uploading...' : 'Choose CSV File'}
+                </button>
+                <span className="text-sm text-gray-500">
+                  {taxonomyFileRef.current?.files?.[0]?.name || 'No file selected'}
+                </span>
               </div>
               <p className="text-xs text-gray-500 mt-2">
                 Download from{' '}
