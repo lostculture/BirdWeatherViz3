@@ -55,14 +55,15 @@ export interface SpeciesDiversityTrend {
 }
 
 export interface SpeciesDiscoveryCurve {
-  detection_date: string
-  cumulative_species: number
+  discovery_date: string
+  cumulative_species_count: number
 }
 
 export interface NewSpeciesThisWeek {
   species_id: number
   common_name: string
   scientific_name: string
+  ebird_code?: string
   first_detection_date: string
   detection_count: number
 }
@@ -70,8 +71,7 @@ export interface NewSpeciesThisWeek {
 export interface FamilyStats {
   family: string
   species_count: number
-  detection_count: number
-  avg_confidence: number
+  total_detections: number
 }
 
 // Station Types

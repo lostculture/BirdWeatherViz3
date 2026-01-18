@@ -148,6 +148,14 @@ async def sync_all_stations(
                 'status': f'error: {str(e)}'
             })
 
+    # Update species cached statistics if any detections were added
+    if total_added > 0:
+        try:
+            species_repo.update_all_cached_stats()
+            logger.info("Species cached statistics updated")
+        except Exception as e:
+            logger.warning(f"Species stats update failed (non-critical): {str(e)}")
+
     # Sync weather for any new detection days
     weather_synced = False
     weather_days_fetched = 0
@@ -306,6 +314,42 @@ async def get_station_statistics(
     stats['station_name'] = station.name
 
     return StationStats(**stats)
+
+
+@router.get("/species/by-station")
+async def get_species_by_station(
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Get species lists for each station (for UpSet plot).
+
+    Returns a dict with station names as keys and lists of species objects
+    (with common_name and ebird_code) as values.
+    """
+    from app.db.models.species import Species
+    from app.db.models.detection import Detection
+    from sqlalchemy import distinct
+
+    station_repo = StationRepository(db)
+    stations = station_repo.get_active_stations()
+
+    result = {}
+    for station in stations:
+        # Get unique species for this station
+        species_query = (
+            db.query(Species.common_name, Species.ebird_code)
+            .join(Detection, Species.id == Detection.species_id)
+            .filter(Detection.station_id == station.id)
+            .distinct()
+            .order_by(Species.common_name)
+        )
+        species_list = [
+            {"common_name": row.common_name, "ebird_code": row.ebird_code}
+            for row in species_query.all()
+        ]
+        result[station.name] = species_list
+
+    return result
 
 
 def _sync_station_detections(
@@ -503,6 +547,14 @@ async def sync_station_data(
         result = _sync_station_detections(
             station, detection_repo, species_repo, station_repo, logger
         )
+
+        # Update species cached statistics if detections were added
+        if result['detections_added'] > 0:
+            try:
+                species_repo.update_all_cached_stats()
+                logger.info("Species cached statistics updated")
+            except Exception as e:
+                logger.warning(f"Species stats update failed (non-critical): {str(e)}")
 
         return SyncResponse(
             success=True,
