@@ -1,8 +1,9 @@
 /**
  * Tailwind CSS Configuration
  * Styling configuration for the frontend application.
+ * Color palette: Male Indigo Bunting
  *
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 /** @type {import('tailwindcss').Config} */
@@ -32,6 +33,14 @@ export default {
         muted: {
           DEFAULT: "hsl(var(--muted))",
           foreground: "hsl(var(--muted-foreground))",
+        },
+        // Male Indigo Bunting Color Palette
+        indigo: {
+          brilliant: "#4169E1",  // Primary - vibrant blue
+          deep: "#1E3A8A",       // Darker blue for accents
+          cerulean: "#5B9BD5",   // Lighter highlight blue
+          dark: "#0F172A",       // Near-black for contrast
+          brown: "#8B7355",      // Subtle brown-gray accent
         },
       },
       borderRadius: {

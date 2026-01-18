@@ -2,33 +2,43 @@
  * Species Analysis Page
  * Displays species diversity trends and discovery curves.
  *
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 import React, { useEffect, useState } from 'react'
 import { speciesApi } from '../api'
 import { LineChart } from '../components/charts'
+import { useFilters } from '../context/FilterContext'
 import type { SpeciesDiversityTrend, SpeciesDiscoveryCurve } from '../types/api'
 import type { Data } from 'plotly.js'
 
 const SpeciesAnalysis: React.FC = () => {
+  const { startDate, endDate, getStationIdsParam } = useFilters()
   const [diversityData, setDiversityData] = useState<SpeciesDiversityTrend[]>([])
   const [discoveryData, setDiscoveryData] = useState<SpeciesDiscoveryCurve[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Reload when filters change
   useEffect(() => {
     loadData()
-  }, [])
+  }, [startDate, endDate, getStationIdsParam()])
 
   const loadData = async () => {
     try {
       setLoading(true)
       setError(null)
 
+      // Build filter params
+      const filterParams = {
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+        station_ids: getStationIdsParam(),
+      }
+
       const [diversity, discovery] = await Promise.all([
-        speciesApi.getDiversityTrend(),
-        speciesApi.getDiscoveryCurve(),
+        speciesApi.getDiversityTrend(filterParams),
+        speciesApi.getDiscoveryCurve(filterParams),
       ])
 
       setDiversityData(diversity)
@@ -64,8 +74,8 @@ const SpeciesAnalysis: React.FC = () => {
   const prepareDiscoveryChart = (): Data[] => {
     return [
       {
-        x: discoveryData.map((d) => d.detection_date),
-        y: discoveryData.map((d) => d.cumulative_species),
+        x: discoveryData.map((d) => d.discovery_date),
+        y: discoveryData.map((d) => d.cumulative_species_count),
         name: 'Cumulative Species',
         type: 'scatter' as const,
         mode: 'lines' as const,
@@ -152,14 +162,14 @@ const SpeciesAnalysis: React.FC = () => {
           <div className="bg-white rounded-lg shadow p-6">
             <div className="text-sm text-muted-foreground">Total Species</div>
             <div className="text-3xl font-bold mt-2">
-              {discoveryData[discoveryData.length - 1]?.cumulative_species || 0}
+              {discoveryData[discoveryData.length - 1]?.cumulative_species_count || 0}
             </div>
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <div className="text-sm text-muted-foreground">First Detection</div>
             <div className="text-xl font-bold mt-2">
               {discoveryData[0]
-                ? new Date(discoveryData[0].detection_date).toLocaleDateString()
+                ? new Date(discoveryData[0].discovery_date).toLocaleDateString()
                 : 'N/A'}
             </div>
           </div>
@@ -168,7 +178,7 @@ const SpeciesAnalysis: React.FC = () => {
             <div className="text-xl font-bold mt-2">
               {discoveryData[discoveryData.length - 1]
                 ? new Date(
-                    discoveryData[discoveryData.length - 1].detection_date
+                    discoveryData[discoveryData.length - 1].discovery_date
                   ).toLocaleDateString()
                 : 'N/A'}
             </div>

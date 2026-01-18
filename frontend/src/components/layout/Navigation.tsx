@@ -1,8 +1,9 @@
 /**
  * Navigation Component
  * Top navigation bar with page links.
+ * Color palette: Male Indigo Bunting
  *
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 import React from 'react'
@@ -28,12 +29,12 @@ const Navigation: React.FC = () => {
   }
 
   return (
-    <nav className="bg-primary text-primary-foreground shadow-md">
+    <nav className="bg-gradient-to-r from-indigo-deep to-indigo-brilliant text-white shadow-lg">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-2">
             <span className="text-xl font-bold">BirdWeatherViz3</span>
-            <span className="text-sm opacity-80">v1.0.0</span>
+            <span className="text-sm opacity-80">v1.1.0</span>
           </div>
           <div className="flex space-x-1">
             {navItems.map((item) => (
@@ -42,8 +43,8 @@ const Navigation: React.FC = () => {
                 to={item.path}
                 className={`px-4 py-2 rounded-md transition-colors ${
                   isActive(item.path)
-                    ? 'bg-primary-foreground text-primary font-medium'
-                    : 'hover:bg-primary-foreground/10'
+                    ? 'bg-white text-indigo-deep font-medium'
+                    : 'hover:bg-white/20'
                 }`}
               >
                 {item.label}

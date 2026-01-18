@@ -2,11 +2,12 @@
  * Layout Component
  * Main application layout with navigation and content area.
  *
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 import React, { ReactNode, useEffect, useState, useRef } from 'react'
 import Navigation from './Navigation'
+import FilterBar from './FilterBar'
 import { stationsApi } from '../../api'
 
 interface LayoutProps {
@@ -82,6 +83,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Navigation />
+      <FilterBar />
 
       {/* Sync Status Banner */}
       {syncStatus && (
@@ -90,7 +92,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             syncStatus.error
               ? 'bg-red-100 text-red-800'
               : syncStatus.syncing
-              ? 'bg-blue-100 text-blue-800'
+              ? 'bg-indigo-cerulean/20 text-indigo-deep'
               : 'bg-green-100 text-green-800'
           }`}
         >
@@ -113,14 +115,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <main className="flex-1 container mx-auto px-4 py-6">
         {children}
       </main>
-      <footer className="bg-muted text-muted-foreground py-4 mt-auto">
+      <footer className="bg-indigo-dark text-white/80 py-4 mt-auto">
         <div className="container mx-auto px-4 text-center text-sm">
           <p>
             BirdWeatherViz3 - Next Generation Bird Detection Visualization
             Platform
           </p>
           <p className="mt-1 opacity-75">
-            Powered by BirdWeather API | Version 1.0.0
+            Powered by BirdWeather API | Version 1.1.0
           </p>
         </div>
       </footer>
