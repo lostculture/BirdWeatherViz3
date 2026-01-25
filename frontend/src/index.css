@@ -1,8 +1,9 @@
 /**
  * Global Styles
  * Main stylesheet with Tailwind CSS directives.
+ * Color palette: Male Indigo Bunting
  *
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 @tailwind base;
@@ -11,18 +12,36 @@
 
 @layer base {
   :root {
+    /* Male Indigo Bunting Color Palette */
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --border: 214.3 31.8% 91.4%;
+    --foreground: 222 47% 11%;           /* Wing Edge Dark #0F172A */
+
+    /* Primary: Brilliant Indigo Blue #4169E1 */
+    --primary: 225 73% 57%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: Cerulean Highlight #5B9BD5 */
+    --secondary: 210 58% 60%;
+    --secondary-foreground: 222 47% 11%;
+
+    /* Accent: Deep Indigo #1E3A8A */
+    --accent: 224 76% 33%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Muted: Light version of cerulean */
+    --muted: 210 40% 96%;
+    --muted-foreground: 222 30% 40%;
+
+    /* Border: Light indigo tint */
+    --border: 225 30% 90%;
     --radius: 0.5rem;
+
+    /* Custom Indigo Bunting colors for direct use */
+    --indigo-brilliant: #4169E1;
+    --indigo-deep: #1E3A8A;
+    --indigo-cerulean: #5B9BD5;
+    --indigo-dark: #0F172A;
+    --indigo-brown: #8B7355;
   }
 
   * {

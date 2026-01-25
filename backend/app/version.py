@@ -12,6 +12,7 @@ __license__ = "Proprietary"
 # Version history
 VERSION_HISTORY = {
     "1.2.0": "Streaming sync with progress updates, species stats fix, multi-station support improvements",
+    "1.1.1": "eBird URL fix, UI improvements, filter bar enhancements",
     "1.1.0": "Weather integration, Docker deployment, performance optimizations",
     "1.0.0": "Initial release - FastAPI + React architecture with all visualizations"
 }

@@ -157,3 +157,26 @@ alembic/versions/__pycache__/
 *.key
 secrets/
 .secrets
+
+# ========================================
+# Claude Code local settings
+# ========================================
+.claude/
+
+# ========================================
+# Debug/Test Scripts
+# ========================================
+capture_correct.py
+check_console.py
+compare_charts*.py
+compare_final.py
+debug_*.py
+kill_port_8000.py
+wait_and_capture.py
+test.py
+
+# ========================================
+# Screenshots
+# ========================================
+*.png
+!frontend/public/*.png

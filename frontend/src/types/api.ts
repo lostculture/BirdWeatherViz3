@@ -55,8 +55,8 @@ export interface SpeciesDiversityTrend {
 }
 
 export interface SpeciesDiscoveryCurve {
-  detection_date: string
-  cumulative_species: number
+  discovery_date: string
+  cumulative_species_count: number
 }
 
 export interface NewSpeciesThisWeek {

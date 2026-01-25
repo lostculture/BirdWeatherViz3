@@ -152,6 +152,13 @@ export const stationsApi = {
       }
     }
   },
+
+  /**
+   * Get species lists for each station (for UpSet plot)
+   */
+  getSpeciesByStation: async (): Promise<Record<string, Array<{common_name: string, ebird_code?: string}>>> => {
+    return apiClient.get<Record<string, Array<{common_name: string, ebird_code?: string}>>>('/stations/species/by-station')
+  },
 }
 
 // Types for streaming sync

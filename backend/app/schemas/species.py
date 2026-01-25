@@ -40,7 +40,7 @@ class SpeciesResponse(SpeciesBase):
     """Schema for species in API responses."""
 
     id: int = Field(..., description="Database ID")
-    species_id: Optional[int] = Field(None, description="BirdWeather species ID")
+    species_id: Optional[int] = Field(None, description="BirdWeather species ID (null for manual imports)")
     ebird_code: Optional[str] = Field(None, description="eBird species code")
     total_detections: int = Field(0, description="Total detections (cached)")
     first_seen: Optional[datetime] = Field(None, description="First detection time")
@@ -84,7 +84,7 @@ class NewSpeciesThisWeek(BaseModel):
     species_id: Optional[int] = None
     common_name: str
     scientific_name: str
-    ebird_code: Optional[str] = Field(None, description="eBird species code for generating links")
+    ebird_code: Optional[str] = Field(None, description="eBird species code")
     first_detection_date: date = Field(..., description="First detection date this week")
     detection_count: int = Field(default=0, description="Number of detections this week")
 

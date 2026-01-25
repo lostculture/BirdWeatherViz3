@@ -54,6 +54,21 @@ async def get_species_list(
     return [SpeciesResponse.from_orm(s) for s in species]
 
 
+@router.post("/refresh-stats")
+async def refresh_species_stats(
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Refresh cached statistics for all species.
+
+    Updates total_detections, first_seen, and last_seen for all species
+    based on actual detection data.
+    """
+    repo = SpeciesRepository(db)
+    count = repo.update_all_cached_stats()
+    return {"success": True, "species_updated": count}
+
+
 @router.get("/diversity/trend", response_model=List[SpeciesDiversityTrend])
 async def get_diversity_trend(
     start_date: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
@@ -174,24 +189,26 @@ async def get_family_stats(
     return [FamilyStats(**r) for r in results]
 
 
-@router.post("/refresh-stats")
-async def refresh_species_stats(
+@router.get("/by-family/{family_name}", response_model=List[SpeciesResponse])
+async def get_species_by_family(
+    family_name: str,
+    station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
     db: Session = Depends(get_db_dependency)
 ):
     """
-    Refresh cached statistics for all species.
+    Get all species in a given bird family.
 
-    Updates first_seen, last_seen, and total_detections from actual
-    detection data. Use this after bulk imports or if stats appear incorrect.
+    Returns list of species belonging to the specified family.
     """
-    repo = SpeciesRepository(db)
-    updated_count = repo.update_all_cached_stats()
+    # Parse station_ids if provided
+    station_id_list = None
+    if station_ids:
+        station_id_list = [int(id.strip()) for id in station_ids.split(",")]
 
-    return {
-        "success": True,
-        "species_updated": updated_count,
-        "message": f"Updated statistics for {updated_count} species"
-    }
+    repo = SpeciesRepository(db)
+    species = repo.get_species_by_family(family_name, station_ids=station_id_list)
+
+    return [SpeciesResponse.from_orm(s) for s in species]
 
 
 # ============================================
@@ -216,3 +233,74 @@ async def get_species_by_id(
         raise HTTPException(status_code=404, detail="Species not found")
 
     return SpeciesResponse.from_orm(species)
+
+
+@router.get("/{species_id}/hourly-pattern")
+async def get_species_hourly_pattern(
+    species_id: int,
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Get hourly detection pattern for a species.
+
+    Returns detection counts for each hour (0-23).
+    """
+    repo = SpeciesRepository(db)
+    return repo.get_hourly_pattern(species_id)
+
+
+@router.get("/{species_id}/monthly-pattern")
+async def get_species_monthly_pattern(
+    species_id: int,
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Get monthly detection pattern for a species.
+
+    Returns detection counts for each month (1-12).
+    """
+    repo = SpeciesRepository(db)
+    return repo.get_monthly_pattern(species_id)
+
+
+@router.get("/{species_id}/timeline")
+async def get_species_timeline(
+    species_id: int,
+    months: Optional[int] = Query(None, description="Limit to last N months"),
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Get detection timeline for a species by station.
+
+    Returns daily detection counts over time, grouped by station.
+    """
+    repo = SpeciesRepository(db)
+    return repo.get_detection_timeline(species_id, months=months)
+
+
+@router.get("/{species_id}/station-distribution")
+async def get_species_station_distribution(
+    species_id: int,
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Get detection distribution across stations for a species.
+
+    Returns detection counts and percentages by station.
+    """
+    repo = SpeciesRepository(db)
+    return repo.get_station_distribution(species_id)
+
+
+@router.get("/{species_id}/confidence-by-station")
+async def get_species_confidence_by_station(
+    species_id: int,
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Get average detection confidence by station for a species.
+
+    Returns average confidence scores per station.
+    """
+    repo = SpeciesRepository(db)
+    return repo.get_confidence_by_station(species_id)
