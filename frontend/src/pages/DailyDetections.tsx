@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { detectionsApi, speciesApi, weatherApi } from '../api'
+import { detectionsApi, speciesApi, weatherApi, settingsApi, generateBirdLinks, DEFAULT_BIRD_SOURCES } from '../api'
 import { LineChart } from '../components/charts'
 import type { DailyDetectionCount, NewSpeciesThisWeek, DatabaseStats } from '../types/api'
 import type { WeatherRecord } from '../api/weather'
@@ -20,10 +20,45 @@ const DailyDetections: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Display settings
+  const [temperatureUnit, setTemperatureUnit] = useState<'imperial' | 'metric'>('imperial')
+  const [windSpeedUnit, setWindSpeedUnit] = useState<'imperial' | 'metric'>('imperial')
+  const [birdInfoSources, setBirdInfoSources] = useState<string[]>(DEFAULT_BIRD_SOURCES)
+
+  // Temperature conversion helpers
+  const toMetricTemp = (f: number) => Math.round((f - 32) * 5 / 9)
+  const formatTemp = (f: number | null) => {
+    if (f === null) return '--'
+    return temperatureUnit === 'metric' ? `${toMetricTemp(f)}°C` : `${Math.round(f)}°F`
+  }
+
+  // Wind speed conversion helpers
+  const toMetricWind = (mph: number) => Math.round(mph * 1.60934)
+  const formatWind = (mph: number | null) => {
+    if (mph === null) return '--'
+    return windSpeedUnit === 'metric' ? `${toMetricWind(mph)} km/h` : `${Math.round(mph)} mph`
+  }
+
   useEffect(() => {
     loadData()
     syncWeatherInBackground()
+    loadDisplaySettings()
   }, [])
+
+  const loadDisplaySettings = async () => {
+    try {
+      const [tempUnit, windUnit, birdSources] = await Promise.all([
+        settingsApi.getTemperatureUnit(),
+        settingsApi.getWindSpeedUnit(),
+        settingsApi.getBirdInfoSources()
+      ])
+      setTemperatureUnit(tempUnit)
+      setWindSpeedUnit(windUnit)
+      setBirdInfoSources(birdSources)
+    } catch (err) {
+      console.log('Failed to load display settings, using defaults')
+    }
+  }
 
   const syncWeatherInBackground = async () => {
     try {
@@ -164,11 +199,11 @@ const DailyDetections: React.FC = () => {
             </div>
             <div className="text-right">
               <div className="text-4xl font-bold">
-                {weather.temp_avg !== null ? `${Math.round(weather.temp_avg)}°F` : '--'}
+                {formatTemp(weather.temp_avg)}
               </div>
               <div className="text-sm opacity-80">
                 {weather.temp_min !== null && weather.temp_max !== null
-                  ? `${Math.round(weather.temp_min)}° / ${Math.round(weather.temp_max)}°`
+                  ? `${temperatureUnit === 'metric' ? toMetricTemp(weather.temp_min) : Math.round(weather.temp_min)}° / ${temperatureUnit === 'metric' ? toMetricTemp(weather.temp_max) : Math.round(weather.temp_max)}°`
                   : ''
                 }
               </div>
@@ -189,7 +224,7 @@ const DailyDetections: React.FC = () => {
             </div>
             <div className="text-center">
               <div className="text-sm opacity-80">Wind</div>
-              <div className="font-semibold">{weather.wind_speed !== null ? `${Math.round(weather.wind_speed)} mph` : '--'}</div>
+              <div className="font-semibold">{formatWind(weather.wind_speed)}</div>
             </div>
           </div>
         </div>
@@ -220,25 +255,48 @@ const DailyDetections: React.FC = () => {
         <h2 className="text-xl font-semibold mb-4">New Species This Week</h2>
         {newSpecies.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {newSpecies.map((species) => (
-              <div
-                key={species.species_id}
-                className="border rounded-lg p-4 hover:shadow-md transition-shadow"
-              >
-                <div className="font-semibold text-lg">{species.common_name}</div>
-                <div className="text-sm text-muted-foreground italic">
-                  {species.scientific_name}
+            {newSpecies.map((species) => {
+              const birdLinks = generateBirdLinks(
+                species.common_name,
+                species.scientific_name,
+                species.ebird_code,
+                birdInfoSources
+              )
+              return (
+                <div
+                  key={species.species_id}
+                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+                >
+                  <div className="font-semibold text-lg">{species.common_name}</div>
+                  <div className="text-sm text-muted-foreground italic">
+                    {species.scientific_name}
+                  </div>
+                  <div className="mt-2 text-sm">
+                    <span className="text-muted-foreground">First this week: </span>
+                    {new Date(species.first_detection_date).toLocaleDateString()}
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Detections this week: </span>
+                    {species.detection_count}
+                  </div>
+                  {birdLinks.length > 0 && (
+                    <div className="mt-3 pt-2 border-t flex flex-wrap gap-2">
+                      {birdLinks.map((link) => (
+                        <a
+                          key={link.source_id}
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition-colors"
+                        >
+                          {link.name}
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="mt-2 text-sm">
-                  <span className="text-muted-foreground">First seen: </span>
-                  {new Date(species.first_detection_date).toLocaleDateString()}
-                </div>
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Detections: </span>
-                  {species.detection_count}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <div className="text-center text-muted-foreground py-8">

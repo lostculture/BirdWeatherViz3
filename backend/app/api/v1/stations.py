@@ -6,8 +6,10 @@ Version: 1.0.0
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Generator
+import json
 
 from app.api.deps import get_db_dependency
 from app.repositories.station import StationRepository
@@ -167,6 +169,161 @@ async def sync_all_stations(
         details=details,
         weather_synced=weather_synced,
         weather_days_fetched=weather_days_fetched
+    )
+
+
+@router.post("/sync-all-stream")
+async def sync_all_stations_stream(
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Sync all active stations with streaming progress updates.
+
+    Returns newline-delimited JSON with progress updates to keep connection alive
+    and show progress to the user.
+    """
+    def generate_sync_progress() -> Generator[str, None, None]:
+        import logging
+        logger = logging.getLogger(__name__)
+
+        station_repo = StationRepository(db)
+        detection_repo = DetectionRepository(db)
+        species_repo = SpeciesRepository(db)
+
+        stations = station_repo.get_active_stations()
+
+        # Initial status
+        yield json.dumps({
+            "type": "start",
+            "message": f"Starting sync for {len(stations)} stations...",
+            "total_stations": len(stations)
+        }) + "\n"
+
+        if not stations:
+            yield json.dumps({
+                "type": "complete",
+                "success": True,
+                "total_detections_added": 0,
+                "stations_synced": 0,
+                "details": []
+            }) + "\n"
+            return
+
+        total_added = 0
+        details = []
+
+        for i, station in enumerate(stations):
+            # Progress update before sync
+            yield json.dumps({
+                "type": "progress",
+                "message": f"Syncing station: {station.name}",
+                "station_index": i + 1,
+                "total_stations": len(stations),
+                "station_name": station.name
+            }) + "\n"
+
+            try:
+                result = _sync_station_detections(
+                    station, detection_repo, species_repo, station_repo, logger
+                )
+                total_added += result['detections_added']
+
+                # Determine status message
+                if result.get('reached_existing'):
+                    status = 'success (caught up to existing data)'
+                elif result.get('reached_gap'):
+                    status = 'success (stopped at 7+ day gap)'
+                elif result.get('reached_limit'):
+                    status = 'partial (hit page limit - run again for more)'
+                else:
+                    status = 'success'
+
+                detail = {
+                    'station_name': station.name,
+                    'detections_added': result['detections_added'],
+                    'status': status
+                }
+                details.append(detail)
+
+                # Progress update after station sync
+                yield json.dumps({
+                    "type": "station_complete",
+                    "station_name": station.name,
+                    "detections_added": result['detections_added'],
+                    "status": status,
+                    "running_total": total_added
+                }) + "\n"
+
+            except Exception as e:
+                logger.error(f"Error syncing station {station.name}: {str(e)}")
+                detail = {
+                    'station_name': station.name,
+                    'detections_added': 0,
+                    'status': f'error: {str(e)}'
+                }
+                details.append(detail)
+
+                yield json.dumps({
+                    "type": "station_error",
+                    "station_name": station.name,
+                    "error": str(e)
+                }) + "\n"
+
+        # Weather sync
+        yield json.dumps({
+            "type": "progress",
+            "message": "Syncing weather data..."
+        }) + "\n"
+
+        weather_synced = False
+        weather_days_fetched = 0
+        try:
+            from app.api.v1.weather import _sync_weather_internal
+            weather_result = _sync_weather_internal(db)
+            weather_synced = weather_result.get('success', False)
+            weather_days_fetched = weather_result.get('days_fetched', 0)
+
+            yield json.dumps({
+                "type": "weather_complete",
+                "success": weather_synced,
+                "days_fetched": weather_days_fetched
+            }) + "\n"
+        except Exception as e:
+            logger.warning(f"Weather sync failed (non-critical): {str(e)}")
+            yield json.dumps({
+                "type": "weather_error",
+                "error": str(e)
+            }) + "\n"
+
+        # Refresh species stats if we added any detections
+        if total_added > 0:
+            yield json.dumps({
+                "type": "progress",
+                "message": "Updating species statistics..."
+            }) + "\n"
+            try:
+                species_updated = species_repo.update_all_cached_stats()
+                yield json.dumps({
+                    "type": "stats_complete",
+                    "species_updated": species_updated
+                }) + "\n"
+            except Exception as e:
+                logger.warning(f"Species stats update failed: {str(e)}")
+
+        # Final result
+        yield json.dumps({
+            "type": "complete",
+            "success": True,
+            "total_detections_added": total_added,
+            "stations_synced": len(stations),
+            "details": details,
+            "weather_synced": weather_synced,
+            "weather_days_fetched": weather_days_fetched
+        }) + "\n"
+
+    return StreamingResponse(
+        generate_sync_progress(),
+        media_type="application/x-ndjson"
     )
 
 
@@ -414,6 +571,9 @@ def _sync_station_detections(
                 continue
 
             species = species_repo.get_by_birdweather_id(bw_species_id)
+            if not species:
+                # Also check by scientific name in case species exists from another station
+                species = species_repo.get_by_scientific_name(scientific_name)
             if not species:
                 species = species_repo.create(
                     species_id=bw_species_id,

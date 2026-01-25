@@ -1,12 +1,10 @@
-version: '3.8'
-
 services:
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       # Persistent storage for SQLite database
       - birdweather-data:/app/data
@@ -24,7 +22,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:80"
+      - "3001:80"
     depends_on:
       - backend
     restart: unless-stopped
@@ -35,4 +33,4 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: C:\Docker\BirdWeatherViz3_docker
+      device: /home/richardj/birdweatherviz3-data/data

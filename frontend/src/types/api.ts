@@ -38,7 +38,7 @@ export interface HourlyDetectionPattern {
 // Species Types
 export interface SpeciesResponse {
   id: number
-  species_id: string
+  species_id?: number | null
   common_name: string
   scientific_name: string
   family?: string
@@ -60,18 +60,32 @@ export interface SpeciesDiscoveryCurve {
 }
 
 export interface NewSpeciesThisWeek {
-  species_id: number
+  species_id?: number | null
   common_name: string
   scientific_name: string
+  ebird_code?: string
   first_detection_date: string
   detection_count: number
+}
+
+// Bird Information Links
+export interface BirdLink {
+  name: string
+  url: string
+  source_id: string
+}
+
+export interface BirdInfoSource {
+  id: string
+  name: string
+  region: string
+  description: string
 }
 
 export interface FamilyStats {
   family: string
   species_count: number
-  detection_count: number
-  avg_confidence: number
+  total_detections: number
 }
 
 // Station Types

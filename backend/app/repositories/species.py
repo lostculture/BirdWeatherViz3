@@ -39,22 +39,21 @@ class SpeciesRepository(BaseRepository[Species]):
         search: Optional[str] = None
     ) -> List[Species]:
         """
-        Get list of all species with optional filtering.
+        Get list of detected species with optional filtering.
 
         Args:
             station_ids: Filter by stations
             search: Search in common or scientific name
 
         Returns:
-            List of Species instances
+            List of Species instances that have actual detections
         """
-        query = self.db.query(Species)
+        # Always join with detections to only return species that have been detected
+        query = self.db.query(Species).join(Detection).distinct()
 
         # Filter by stations (species detected at these stations)
         if station_ids:
-            query = query.join(Detection).filter(
-                Detection.station_id.in_(station_ids)
-            ).distinct()
+            query = query.filter(Detection.station_id.in_(station_ids))
 
         # Search filter
         if search:
@@ -192,6 +191,7 @@ class SpeciesRepository(BaseRepository[Species]):
                 Species.species_id,
                 Species.common_name,
                 Species.scientific_name,
+                Species.ebird_code,
                 func.min(Detection.detection_date).label('first_detection_date'),
                 func.count(Detection.id).label('detection_count')
             )
@@ -205,7 +205,8 @@ class SpeciesRepository(BaseRepository[Species]):
         query = query.group_by(
             Species.species_id,
             Species.common_name,
-            Species.scientific_name
+            Species.scientific_name,
+            Species.ebird_code
         ).order_by(func.min(Detection.detection_date))
 
         results = query.all()
@@ -215,6 +216,7 @@ class SpeciesRepository(BaseRepository[Species]):
                 'species_id': row.species_id,
                 'common_name': row.common_name,
                 'scientific_name': row.scientific_name,
+                'ebird_code': row.ebird_code,
                 'first_detection_date': row.first_detection_date,
                 'detection_count': row.detection_count
             }
@@ -360,3 +362,36 @@ class SpeciesRepository(BaseRepository[Species]):
         species.last_seen = stats.last
 
         self.db.commit()
+
+    def update_all_cached_stats(self) -> int:
+        """
+        Update cached statistics for all species that have detections.
+
+        This calculates first_seen, last_seen, and total_detections
+        from actual detection data.
+
+        Returns:
+            Number of species updated
+        """
+        # Get all species stats in one query
+        stats_query = (
+            self.db.query(
+                Detection.species_id,
+                func.count(Detection.id).label('total'),
+                func.min(Detection.timestamp).label('first'),
+                func.max(Detection.timestamp).label('last')
+            )
+            .group_by(Detection.species_id)
+        )
+
+        updated_count = 0
+        for row in stats_query.all():
+            species = self.get_by_id(row.species_id)
+            if species:
+                species.total_detections = row.total or 0
+                species.first_seen = row.first
+                species.last_seen = row.last
+                updated_count += 1
+
+        self.db.commit()
+        return updated_count

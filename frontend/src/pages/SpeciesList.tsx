@@ -25,7 +25,7 @@ const SpeciesList: React.FC = () => {
       setLoading(true)
       setError(null)
       const data = await speciesApi.getFamilyStats()
-      setFamilyData(data.sort((a, b) => b.detection_count - a.detection_count))
+      setFamilyData(data.sort((a, b) => b.total_detections - a.total_detections))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -37,7 +37,7 @@ const SpeciesList: React.FC = () => {
     return [
       {
         x: familyData.map((f) => f.family),
-        y: familyData.map((f) => f.detection_count),
+        y: familyData.map((f) => f.total_detections),
         name: 'Detections',
         type: 'bar' as const,
       },
@@ -106,9 +106,6 @@ const SpeciesList: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Total Detections
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Avg Confidence
-                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -121,10 +118,7 @@ const SpeciesList: React.FC = () => {
                       {family.species_count}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {family.detection_count.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {family.avg_confidence.toFixed(2)}
+                      {family.total_detections.toLocaleString()}
                     </td>
                   </tr>
                 ))}

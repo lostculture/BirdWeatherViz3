@@ -174,6 +174,26 @@ async def get_family_stats(
     return [FamilyStats(**r) for r in results]
 
 
+@router.post("/refresh-stats")
+async def refresh_species_stats(
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Refresh cached statistics for all species.
+
+    Updates first_seen, last_seen, and total_detections from actual
+    detection data. Use this after bulk imports or if stats appear incorrect.
+    """
+    repo = SpeciesRepository(db)
+    updated_count = repo.update_all_cached_stats()
+
+    return {
+        "success": True,
+        "species_updated": updated_count,
+        "message": f"Updated statistics for {updated_count} species"
+    }
+
+
 # ============================================
 # Dynamic routes with {species_id} parameter
 # ============================================

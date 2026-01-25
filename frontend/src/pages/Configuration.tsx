@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react'
-import { stationsApi, settingsApi, weatherApi } from '../api'
+import { stationsApi, settingsApi, weatherApi, BIRD_INFO_SOURCES, BIRD_SOURCE_REGIONS, DEFAULT_BIRD_SOURCES } from '../api'
 import type { StationResponse, StationCreate, StationUpdate } from '../types/api'
 import type { TaxonomyStats } from '../api/settings'
 import type { WeatherStats, WeatherStationSetting } from '../api/weather'
@@ -27,6 +27,9 @@ const Configuration: React.FC = () => {
   const [editingStation, setEditingStation] = useState<StationResponse | null>(null)
   const [syncing, setSyncing] = useState<{ [key: number]: boolean }>({})
   const [syncingAll, setSyncingAll] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<string>('')
+  const [syncDetails, setSyncDetails] = useState<Array<{station_name: string, detections_added: number, status: string}>>([])
+  const [showSyncProgress, setShowSyncProgress] = useState(false)
   const [formData, setFormData] = useState<StationFormData>({
     station_id: '',
     name: '',
@@ -45,6 +48,15 @@ const Configuration: React.FC = () => {
   const [syncingWeather, setSyncingWeather] = useState(false)
   const [settingWeatherStation, setSettingWeatherStation] = useState(false)
 
+  // Display units state
+  const [temperatureUnit, setTemperatureUnit] = useState<'imperial' | 'metric'>('imperial')
+  const [windSpeedUnit, setWindSpeedUnit] = useState<'imperial' | 'metric'>('imperial')
+  const [savingUnits, setSavingUnits] = useState(false)
+
+  // Bird info sources state
+  const [birdInfoSources, setBirdInfoSources] = useState<string[]>(DEFAULT_BIRD_SOURCES)
+  const [savingBirdSources, setSavingBirdSources] = useState(false)
+
   const taxonomyFileRef = useRef<HTMLInputElement>(null)
   const detectionsFileRef = useRef<HTMLInputElement>(null)
 
@@ -52,7 +64,83 @@ const Configuration: React.FC = () => {
     loadStations()
     loadSettings()
     loadWeatherData()
+    loadDisplaySettings()
   }, [])
+
+  const loadDisplaySettings = async () => {
+    try {
+      const [tempUnit, windUnit, birdSources] = await Promise.all([
+        settingsApi.getTemperatureUnit(),
+        settingsApi.getWindSpeedUnit(),
+        settingsApi.getBirdInfoSources()
+      ])
+      setTemperatureUnit(tempUnit)
+      setWindSpeedUnit(windUnit)
+      setBirdInfoSources(birdSources)
+    } catch (err) {
+      console.error('Failed to load display settings:', err)
+    }
+  }
+
+  const handleSaveUnits = async () => {
+    try {
+      setSavingUnits(true)
+      await Promise.all([
+        settingsApi.setTemperatureUnit(temperatureUnit),
+        settingsApi.setWindSpeedUnit(windSpeedUnit)
+      ])
+      alert('Display units saved!')
+    } catch (err: any) {
+      alert('Failed to save units: ' + (err.message || 'Unknown error'))
+    } finally {
+      setSavingUnits(false)
+    }
+  }
+
+  const handleToggleBirdSource = (sourceId: string) => {
+    setBirdInfoSources(prev => {
+      if (prev.includes(sourceId)) {
+        return prev.filter(s => s !== sourceId)
+      } else {
+        return [...prev, sourceId]
+      }
+    })
+  }
+
+  const handleSaveBirdSources = async () => {
+    if (birdInfoSources.length === 0) {
+      alert('Please select at least one source.')
+      return
+    }
+    try {
+      setSavingBirdSources(true)
+      await settingsApi.setBirdInfoSources(birdInfoSources)
+      alert('Bird info sources saved!')
+    } catch (err: any) {
+      alert('Failed to save bird sources: ' + (err.message || 'Unknown error'))
+    } finally {
+      setSavingBirdSources(false)
+    }
+  }
+
+  const handleBirdSourcePreset = async (preset: 'north_america' | 'uk' | 'global') => {
+    const presets: Record<string, string[]> = {
+      north_america: ['ebird', 'allaboutbirds'],
+      uk: ['rspb', 'bto', 'ebird'],
+      global: ['ebird', 'wikipedia', 'xenocanto']
+    }
+    const sources = presets[preset]
+    setBirdInfoSources(sources)
+    try {
+      setSavingBirdSources(true)
+      await settingsApi.setBirdInfoSources(sources)
+      alert('Preset applied and saved!')
+    } catch (err: any) {
+      alert('Failed to save preset: ' + (err.message || 'Unknown error'))
+    } finally {
+      setSavingBirdSources(false)
+    }
+  }
 
   const loadStations = async () => {
     try {
@@ -209,24 +297,62 @@ const Configuration: React.FC = () => {
 
   const handleSyncAllStations = async () => {
     setSyncingAll(true)
-    try {
-      const result = await stationsApi.syncAll()
-      const messages = result.details.map(
-        (d) => `${d.station_name}: ${d.detections_added} detections (${d.status})`
-      ).join('\n')
+    setSyncProgress('Starting sync...')
+    setSyncDetails([])
+    setShowSyncProgress(true)
 
-      let weatherMsg = ''
-      if (result.weather_synced && result.weather_days_fetched > 0) {
-        weatherMsg = `\n\nWeather: ${result.weather_days_fetched} days synced`
-      } else if (result.weather_synced) {
-        weatherMsg = '\n\nWeather: Already up to date'
+    try {
+      for await (const event of stationsApi.syncAllStream()) {
+        switch (event.type) {
+          case 'start':
+            setSyncProgress(event.message || 'Starting...')
+            break
+          case 'progress':
+            setSyncProgress(event.message || 'Processing...')
+            break
+          case 'station_complete':
+            setSyncProgress(`Completed: ${event.station_name} (+${event.detections_added} detections)`)
+            setSyncDetails(prev => [...prev, {
+              station_name: event.station_name || '',
+              detections_added: event.detections_added || 0,
+              status: event.status || ''
+            }])
+            break
+          case 'station_error':
+            setSyncProgress(`Error syncing ${event.station_name}`)
+            setSyncDetails(prev => [...prev, {
+              station_name: event.station_name || '',
+              detections_added: 0,
+              status: `error: ${event.error}`
+            }])
+            break
+          case 'weather_complete':
+            setSyncProgress(event.days_fetched
+              ? `Weather: ${event.days_fetched} days synced`
+              : 'Weather: Already up to date')
+            break
+          case 'weather_error':
+            setSyncProgress(`Weather sync failed: ${event.error}`)
+            break
+          case 'complete':
+            setSyncProgress(`Complete! ${event.total_detections_added} new detections`)
+            break
+        }
       }
 
-      alert(`Sync complete!\n\nTotal: ${result.total_detections_added} new detections${weatherMsg}\n\n${messages}`)
       await loadStations()
       await loadWeatherData()
+
+      // Keep progress visible for a moment before hiding
+      setTimeout(() => {
+        setShowSyncProgress(false)
+      }, 3000)
+
     } catch (err: any) {
-      alert('Failed to sync all stations: ' + (err.message || 'Unknown error'))
+      setSyncProgress(`Error: ${err.message || 'Unknown error'}`)
+      setTimeout(() => {
+        setShowSyncProgress(false)
+      }, 5000)
     } finally {
       setSyncingAll(false)
     }
@@ -314,6 +440,37 @@ const Configuration: React.FC = () => {
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{error}</div>
+      )}
+
+      {/* Sync Progress Display */}
+      {showSyncProgress && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center space-x-3">
+            {syncingAll && (
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent"></div>
+            )}
+            <div className="flex-1">
+              <p className="font-medium text-blue-900">{syncProgress}</p>
+              {syncDetails.length > 0 && (
+                <div className="mt-2 text-sm text-blue-800 max-h-40 overflow-y-auto">
+                  {syncDetails.map((d, i) => (
+                    <div key={i} className="py-1 border-b border-blue-100 last:border-0">
+                      {d.station_name}: +{d.detections_added} ({d.status})
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {!syncingAll && (
+              <button
+                onClick={() => setShowSyncProgress(false)}
+                className="text-blue-600 hover:text-blue-800"
+              >
+                Close
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Station Form Modal */}
@@ -681,6 +838,164 @@ const Configuration: React.FC = () => {
                 <p className="text-gray-500 text-sm">No weather data</p>
               )}
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Display Units Section */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="p-6">
+          <h2 className="text-xl font-semibold mb-4">Display Units</h2>
+          <p className="text-gray-600 mb-4">
+            Configure how temperature and wind speed are displayed throughout the application.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h3 className="font-medium mb-3">Temperature</h3>
+              <div className="flex space-x-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="temperatureUnit"
+                    checked={temperatureUnit === 'imperial'}
+                    onChange={() => setTemperatureUnit('imperial')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span className="ml-2">°F (Fahrenheit)</span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="temperatureUnit"
+                    checked={temperatureUnit === 'metric'}
+                    onChange={() => setTemperatureUnit('metric')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span className="ml-2">°C (Celsius)</span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-medium mb-3">Wind Speed</h3>
+              <div className="flex space-x-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="windSpeedUnit"
+                    checked={windSpeedUnit === 'imperial'}
+                    onChange={() => setWindSpeedUnit('imperial')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span className="ml-2">mph</span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="windSpeedUnit"
+                    checked={windSpeedUnit === 'metric'}
+                    onChange={() => setWindSpeedUnit('metric')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span className="ml-2">km/h</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <button
+              onClick={handleSaveUnits}
+              disabled={savingUnits}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
+            >
+              {savingUnits ? 'Saving...' : 'Save Unit Preferences'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Bird Information Sources Section */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="p-6">
+          <h2 className="text-xl font-semibold mb-4">Bird Information Sources</h2>
+          <p className="text-gray-600 mb-4">
+            Select which bird reference websites to show links for in species displays.
+          </p>
+
+          {/* Region groups */}
+          {Object.entries(BIRD_SOURCE_REGIONS).map(([region, sourceIds]) => (
+            <div key={region} className="mb-4">
+              <h3 className="font-medium mb-2 text-gray-700">{region}</h3>
+              <div className="flex flex-wrap gap-3">
+                {sourceIds.map(sourceId => {
+                  const source = BIRD_INFO_SOURCES[sourceId]
+                  if (!source) return null
+                  return (
+                    <label
+                      key={sourceId}
+                      className="flex items-center bg-gray-50 px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-100"
+                      title={source.description}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={birdInfoSources.includes(sourceId)}
+                        onChange={() => handleToggleBirdSource(sourceId)}
+                        className="w-4 h-4 text-blue-600 rounded"
+                      />
+                      <span className="ml-2 text-sm">{source.name}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+
+          <div className="flex items-center space-x-3 mt-4">
+            <button
+              onClick={handleSaveBirdSources}
+              disabled={savingBirdSources}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
+            >
+              {savingBirdSources ? 'Saving...' : 'Save Bird Info Sources'}
+            </button>
+          </div>
+
+          {/* Quick Presets */}
+          <div className="mt-4 pt-4 border-t">
+            <h4 className="text-sm font-medium text-gray-600 mb-2">Quick Presets</h4>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => handleBirdSourcePreset('north_america')}
+                disabled={savingBirdSources}
+                className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-medium disabled:opacity-50"
+              >
+                North America
+              </button>
+              <button
+                onClick={() => handleBirdSourcePreset('uk')}
+                disabled={savingBirdSources}
+                className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-medium disabled:opacity-50"
+              >
+                United Kingdom
+              </button>
+              <button
+                onClick={() => handleBirdSourcePreset('global')}
+                disabled={savingBirdSources}
+                className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-medium disabled:opacity-50"
+              >
+                Global
+              </button>
+            </div>
+          </div>
+
+          {/* Currently enabled */}
+          <div className="mt-4 text-sm text-gray-500">
+            <span className="font-medium">Currently enabled: </span>
+            {birdInfoSources.length > 0
+              ? birdInfoSources.map(id => BIRD_INFO_SOURCES[id]?.name).filter(Boolean).join(', ')
+              : 'None selected'}
           </div>
         </div>
       </div>
