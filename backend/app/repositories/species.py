@@ -36,14 +36,16 @@ class SpeciesRepository(BaseRepository[Species]):
     def get_species_list(
         self,
         station_ids: Optional[List[int]] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        detected_only: bool = True
     ) -> List[Species]:
         """
-        Get list of all species with optional filtering.
+        Get list of species with optional filtering.
 
         Args:
             station_ids: Filter by stations
             search: Search in common or scientific name
+            detected_only: Only return species with at least one detection (default True)
 
         Returns:
             List of Species instances
@@ -55,6 +57,9 @@ class SpeciesRepository(BaseRepository[Species]):
             query = query.join(Detection).filter(
                 Detection.station_id.in_(station_ids)
             ).distinct()
+        elif detected_only:
+            # Only return species that have been detected
+            query = query.join(Detection).distinct()
 
         # Search filter
         if search:
