@@ -7,6 +7,7 @@
  */
 
 import React, { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { speciesApi, settingsApi, generateBirdLinks, DEFAULT_BIRD_SOURCES } from '../api'
 import type { SpeciesResponse } from '../types/api'
 import type {
@@ -41,6 +42,7 @@ const COLORS = {
 const STATION_COLORS = [COLORS.deep, COLORS.cerulean, COLORS.brilliant, COLORS.brown]
 
 const SpeciesDetails: React.FC = () => {
+  const [searchParams] = useSearchParams()
   const [speciesList, setSpeciesList] = useState<SpeciesResponse[]>([])
   const [selectedSpeciesId, setSelectedSpeciesId] = useState<number | null>(null)
   const [selectedSpecies, setSelectedSpecies] = useState<SpeciesResponse | null>(null)
@@ -83,8 +85,20 @@ const SpeciesDetails: React.FC = () => {
     try {
       const list = await speciesApi.getList()
       setSpeciesList(list.sort((a, b) => a.common_name.localeCompare(b.common_name)))
-      // Auto-select first species
-      if (list.length > 0) {
+
+      // Check for species ID in URL query parameter
+      const urlSpeciesId = searchParams.get('id')
+      if (urlSpeciesId) {
+        const parsedId = parseInt(urlSpeciesId, 10)
+        // Verify the species exists in the list
+        if (list.some(s => s.id === parsedId)) {
+          setSelectedSpeciesId(parsedId)
+        } else if (list.length > 0) {
+          // Fallback to first species if URL ID not found
+          setSelectedSpeciesId(list[0].id)
+        }
+      } else if (list.length > 0) {
+        // Auto-select first species if no URL parameter
         setSelectedSpeciesId(list[0].id)
       }
       setLoading(false)
