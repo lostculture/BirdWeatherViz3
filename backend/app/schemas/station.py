@@ -60,6 +60,7 @@ class StationStats(BaseModel):
     total_detections: int = 0
     unique_species: int = 0
     days_active: int = 0
+    avg_detections_per_day: float = 0.0
     avg_confidence: float = 0.0
     first_detection: Optional[datetime] = None
     last_detection: Optional[datetime] = None

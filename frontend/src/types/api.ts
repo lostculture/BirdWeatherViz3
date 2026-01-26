@@ -132,6 +132,7 @@ export interface StationStats {
   total_detections: number
   unique_species: number
   days_active: number
+  avg_detections_per_day: number
   avg_confidence: number
   first_detection?: string
   last_detection?: string

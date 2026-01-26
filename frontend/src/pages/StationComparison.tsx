@@ -294,6 +294,9 @@ const StationComparison: React.FC = () => {
                     Days Active
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Avg/Day
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Avg Confidence
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -318,6 +321,9 @@ const StationComparison: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {station.days_active}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {station.avg_detections_per_day.toFixed(1)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {station.avg_confidence.toFixed(2)}

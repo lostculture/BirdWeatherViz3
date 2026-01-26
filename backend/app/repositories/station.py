@@ -64,11 +64,14 @@ class StationRepository(BaseRepository[Station]):
             .first()
         )
 
+        total = stats.total_detections or 0
+        days = stats.days_active or 0
         return {
             'station_id': station_id,
-            'total_detections': stats.total_detections or 0,
+            'total_detections': total,
             'unique_species': stats.unique_species or 0,
-            'days_active': stats.days_active or 0,
+            'days_active': days,
+            'avg_detections_per_day': round(total / days, 1) if days > 0 else 0.0,
             'avg_confidence': float(stats.avg_confidence) if stats.avg_confidence else 0.0,
             'first_detection': stats.first_detection,
             'last_detection': stats.last_detection
@@ -109,17 +112,20 @@ class StationRepository(BaseRepository[Station]):
 
         results = query.all()
 
-        return [
-            {
+        stats_list = []
+        for row in results:
+            total = row.total_detections or 0
+            days = row.days_active or 0
+            stats_list.append({
                 'id': row.id,
                 'station_id': row.station_id,
                 'station_name': row.name,
-                'total_detections': row.total_detections or 0,
+                'total_detections': total,
                 'unique_species': row.unique_species or 0,
-                'days_active': row.days_active or 0,
+                'days_active': days,
+                'avg_detections_per_day': round(total / days, 1) if days > 0 else 0.0,
                 'avg_confidence': float(row.avg_confidence) if row.avg_confidence else 0.0,
                 'first_detection': row.first_detection,
                 'last_detection': row.last_detection
-            }
-            for row in results
-        ]
+            })
+        return stats_list
