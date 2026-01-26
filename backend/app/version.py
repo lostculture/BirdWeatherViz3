@@ -1,16 +1,17 @@
 """
 BirdWeatherViz3 Version Information
 
-Version: 1.2.0
+Version: 1.3.0
 """
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 __author__ = "BirdWeatherViz3 Contributors"
 __description__ = "Next-generation bird detection visualization platform"
 __license__ = "Proprietary"
 
 # Version history
 VERSION_HISTORY = {
+    "1.3.0": "iNat taxon ID lookup/caching, Family Explorer fix, Station Comparison links, avg detections per day",
     "1.2.0": "Streaming sync with progress updates, species stats fix, multi-station support improvements",
     "1.1.1": "eBird URL fix, UI improvements, filter bar enhancements",
     "1.1.0": "Weather integration, Docker deployment, performance optimizations",
