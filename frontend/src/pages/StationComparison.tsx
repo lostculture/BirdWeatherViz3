@@ -6,7 +6,8 @@
  */
 
 import React, { useEffect, useState, useMemo } from 'react'
-import { stationsApi, settingsApi, generateBirdLinks, DEFAULT_BIRD_SOURCES } from '../api'
+import { Link } from 'react-router-dom'
+import { stationsApi } from '../api'
 import { BarChart } from '../components/charts'
 import type { StationStats } from '../types/api'
 import type { Data } from 'plotly.js'
@@ -33,9 +34,9 @@ const ExpandableSpeciesList: React.FC<{
   title: string
   subtitle: string
   species: SpeciesInfo[]
-  birdInfoSources: string[]
+  speciesIdMap: Map<string, number>
   defaultExpanded?: boolean
-}> = ({ title, subtitle, species, birdInfoSources, defaultExpanded = false }) => {
+}> = ({ title, subtitle, species, speciesIdMap, defaultExpanded = false }) => {
   const [expanded, setExpanded] = useState(defaultExpanded)
 
   return (
@@ -60,32 +61,21 @@ const ExpandableSpeciesList: React.FC<{
           {species.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1 mt-3">
               {species.map((sp) => {
-                const links = generateBirdLinks(
-                  sp.common_name,
-                  sp.scientific_name,
-                  sp.ebird_code,
-                  birdInfoSources,
-                  sp.inat_taxon_id
-                )
+                const speciesId = speciesIdMap.get(sp.scientific_name)
                 return (
                   <div
                     key={sp.common_name}
                     className="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded text-sm"
                   >
                     <span className="truncate">{sp.common_name}</span>
-                    <div className="flex gap-2 ml-2 flex-shrink-0">
-                      {links.map((link) => (
-                        <a
-                          key={link.source_id}
-                          href={link.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-indigo-brilliant hover:underline"
-                        >
-                          {link.name}
-                        </a>
-                      ))}
-                    </div>
+                    {speciesId && (
+                      <Link
+                        to={`/species?id=${speciesId}`}
+                        className="text-xs text-indigo-brilliant hover:underline ml-2 flex-shrink-0"
+                      >
+                        Details
+                      </Link>
+                    )}
                   </div>
                 )
               })}
@@ -109,34 +99,33 @@ interface UpSetIntersection {
 const StationComparison: React.FC = () => {
   const [stations, setStations] = useState<StationStats[]>([])
   const [speciesByStation, setSpeciesByStation] = useState<Record<string, SpeciesInfo[]>>({})
-  const [birdInfoSources, setBirdInfoSources] = useState<string[]>(DEFAULT_BIRD_SOURCES)
+  const [speciesIdMap, setSpeciesIdMap] = useState<Map<string, number>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
-    loadDisplaySettings()
   }, [])
-
-  const loadDisplaySettings = async () => {
-    try {
-      const sources = await settingsApi.getBirdInfoSources()
-      setBirdInfoSources(sources)
-    } catch (err) {
-      console.log('Failed to load display settings, using defaults')
-    }
-  }
 
   const loadData = async () => {
     try {
       setLoading(true)
       setError(null)
-      const [statsData, speciesData] = await Promise.all([
+      const [statsData, speciesData, speciesList] = await Promise.all([
         stationsApi.getComparison(),
         stationsApi.getSpeciesByStation(),
+        // Get species list to map scientific names to IDs
+        fetch('/api/v1/species/').then(r => r.json()),
       ])
       setStations(statsData)
       setSpeciesByStation(speciesData)
+
+      // Build map of scientific_name -> id for linking to details page
+      const idMap = new Map<string, number>()
+      for (const sp of speciesList) {
+        idMap.set(sp.scientific_name, sp.id)
+      }
+      setSpeciesIdMap(idMap)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -387,7 +376,7 @@ const StationComparison: React.FC = () => {
               title="Shared by All Stations"
               subtitle={`Species detected at every station`}
               species={upsetData.sharedByAll}
-              birdInfoSources={birdInfoSources}
+              speciesIdMap={speciesIdMap}
               defaultExpanded={true}
             />
 
@@ -400,7 +389,7 @@ const StationComparison: React.FC = () => {
                   title={`Unique to ${stationName}`}
                   subtitle={`Species only detected at this station`}
                   species={uniqueSpecies}
-                  birdInfoSources={birdInfoSources}
+                  speciesIdMap={speciesIdMap}
                 />
               )
             })}

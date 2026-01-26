@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { speciesApi } from '../api'
+import { speciesApi, settingsApi, generateBirdLinks, DEFAULT_BIRD_SOURCES } from '../api'
 import type { SpeciesResponse } from '../types/api'
 import type {
   HourlyPattern,
@@ -18,12 +18,6 @@ import type {
 } from '../api/species'
 import { BarChart, LineChart, PieChart } from '../components/charts'
 import type { Data, Layout } from 'plotly.js'
-
-// Helper to generate All About Birds URL from common name
-const getAllAboutBirdsUrl = (commonName: string): string => {
-  const slug = commonName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '')
-  return `https://www.allaboutbirds.org/guide/${slug}`
-}
 
 // Helper to get bird image URL from our API
 const getBirdImageUrl = (scientificName: string, commonName?: string): string => {
@@ -60,11 +54,22 @@ const SpeciesDetails: React.FC = () => {
   const [timelineMonths, setTimelineMonths] = useState<number | null>(null)
   const [birdImageUrl, setBirdImageUrl] = useState<string | null>(null)
   const [imageError, setImageError] = useState(false)
+  const [birdInfoSources, setBirdInfoSources] = useState<string[]>(DEFAULT_BIRD_SOURCES)
 
-  // Load species list on mount
+  // Load species list and settings on mount
   useEffect(() => {
     loadSpeciesList()
+    loadDisplaySettings()
   }, [])
+
+  const loadDisplaySettings = async () => {
+    try {
+      const sources = await settingsApi.getBirdInfoSources()
+      setBirdInfoSources(sources)
+    } catch (err) {
+      console.log('Failed to load display settings, using defaults')
+    }
+  }
 
   // Load species data when selection changes
   useEffect(() => {
@@ -324,33 +329,24 @@ const SpeciesDetails: React.FC = () => {
                 {selectedSpecies.family && (
                   <p className="text-sm text-muted-foreground mt-1">Family: {selectedSpecies.family}</p>
                 )}
-                <div className="mt-4 flex flex-wrap gap-4">
-                  <a
-                    href={getAllAboutBirdsUrl(selectedSpecies.common_name)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-indigo-brilliant hover:underline text-sm font-medium"
-                  >
-                    All About Birds →
-                  </a>
-                  {selectedSpecies.ebird_code && (
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {generateBirdLinks(
+                    selectedSpecies.common_name,
+                    selectedSpecies.scientific_name,
+                    selectedSpecies.ebird_code,
+                    birdInfoSources,
+                    selectedSpecies.inat_taxon_id
+                  ).map((link) => (
                     <a
-                      href={`https://ebird.org/species/${selectedSpecies.ebird_code}`}
+                      key={link.source_id}
+                      href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-indigo-brilliant hover:underline text-sm"
                     >
-                      eBird →
+                      {link.name} →
                     </a>
-                  )}
-                  <a
-                    href={`https://en.wikipedia.org/wiki/${encodeURIComponent(selectedSpecies.scientific_name.replace(' ', '_'))}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-indigo-brilliant hover:underline text-sm"
-                  >
-                    Wikipedia →
-                  </a>
+                  ))}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">

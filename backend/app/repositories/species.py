@@ -73,24 +73,27 @@ class SpeciesRepository(BaseRepository[Species]):
         station_ids: Optional[List[int]] = None
     ) -> List[Species]:
         """
-        Get all species belonging to a specific family.
+        Get all detected species belonging to a specific family.
 
         Args:
             family_name: Name of the bird family
             station_ids: Optional filter by stations
 
         Returns:
-            List of Species instances
+            List of Species instances that have been detected
         """
-        query = self.db.query(Species).filter(Species.family == family_name)
+        # Always join with Detection to only return species that have been detected
+        query = (
+            self.db.query(Species)
+            .join(Detection)
+            .filter(Species.family == family_name)
+        )
 
-        # Filter by stations (species detected at these stations)
+        # Filter by stations if provided
         if station_ids:
-            query = query.join(Detection).filter(
-                Detection.station_id.in_(station_ids)
-            ).distinct()
+            query = query.filter(Detection.station_id.in_(station_ids))
 
-        return query.order_by(Species.common_name).all()
+        return query.distinct().order_by(Species.common_name).all()
 
     def get_daily_unique_species(
         self,
