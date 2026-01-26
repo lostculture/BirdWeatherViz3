@@ -70,7 +70,7 @@ const ExpandableSpeciesList: React.FC<{
                     <span className="truncate">{sp.common_name}</span>
                     {speciesId && (
                       <Link
-                        to={`/species?id=${speciesId}`}
+                        to={`/species-details?id=${speciesId}`}
                         className="text-xs text-indigo-brilliant hover:underline ml-2 flex-shrink-0"
                       >
                         Details

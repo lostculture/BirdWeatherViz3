@@ -55,6 +55,7 @@ const SpeciesDetails: React.FC = () => {
   const [birdImageUrl, setBirdImageUrl] = useState<string | null>(null)
   const [imageError, setImageError] = useState(false)
   const [birdInfoSources, setBirdInfoSources] = useState<string[]>(DEFAULT_BIRD_SOURCES)
+  const [inatTaxonId, setInatTaxonId] = useState<number | null>(null)
 
   // Load species list and settings on mount
   useEffect(() => {
@@ -97,6 +98,7 @@ const SpeciesDetails: React.FC = () => {
     try {
       setLoading(true)
       setImageError(false)
+      setInatTaxonId(null) // Reset iNat taxon ID for new species
       const [species, hourly, monthly, timeline, distribution, confidence] = await Promise.all([
         speciesApi.getById(speciesId),
         speciesApi.getHourlyPattern(speciesId),
@@ -114,6 +116,22 @@ const SpeciesDetails: React.FC = () => {
       // Set bird image URL (pass both scientific and common name)
       setBirdImageUrl(getBirdImageUrl(species.scientific_name, species.common_name))
       setLoading(false)
+
+      // Fetch iNat taxon ID in background (don't block main load)
+      // Use the existing cached value if available, or fetch from API
+      if (species.inat_taxon_id) {
+        setInatTaxonId(species.inat_taxon_id)
+      } else if (birdInfoSources.includes('inaturalist')) {
+        speciesApi.getInatTaxonId(species.scientific_name)
+          .then(result => {
+            if (result.taxon_id) {
+              setInatTaxonId(result.taxon_id)
+            }
+          })
+          .catch(() => {
+            // Silently ignore errors - we'll just use the search fallback
+          })
+      }
     } catch (err) {
       setError('Failed to load species data')
       setLoading(false)
@@ -335,7 +353,7 @@ const SpeciesDetails: React.FC = () => {
                     selectedSpecies.scientific_name,
                     selectedSpecies.ebird_code,
                     birdInfoSources,
-                    selectedSpecies.inat_taxon_id
+                    inatTaxonId
                   ).map((link) => (
                     <a
                       key={link.source_id}

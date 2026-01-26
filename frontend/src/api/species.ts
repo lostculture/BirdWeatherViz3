@@ -154,4 +154,16 @@ export const speciesApi = {
   refreshStats: async (): Promise<{ success: boolean; species_updated: number }> => {
     return apiClient.post<{ success: boolean; species_updated: number }>('/species/refresh-stats')
   },
+
+  /**
+   * Get iNaturalist taxon ID for a species (fetches and caches if not available)
+   */
+  getInatTaxonId: async (scientificName: string): Promise<{
+    scientific_name: string
+    taxon_id: number | null
+    url: string
+    cached: boolean
+  }> => {
+    return apiClient.get(`/species/inat-taxon/${encodeURIComponent(scientificName)}`)
+  },
 }
