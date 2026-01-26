@@ -95,9 +95,9 @@ export const BIRD_INFO_SOURCES: Record<string, BirdInfoSource> = {
   },
   inaturalist: {
     id: 'inaturalist',
-    name: 'iNaturalist',
+    name: 'iNat',
     region: 'Global',
-    description: 'Community-driven species observations'
+    description: 'iNaturalist - Community-driven species observations'
   }
 }
 
@@ -276,15 +276,22 @@ export function generateBirdLinks(
   commonName: string,
   scientificName: string,
   ebirdCode: string | null | undefined,
-  enabledSources: string[]
+  enabledSources: string[],
+  inatTaxonId?: number | null
 ): Array<{ name: string; url: string; source_id: string }> {
   const links: Array<{ name: string; url: string; source_id: string }> = []
 
   // Prepare name variations
   const commonNameUnderscore = commonName.replace(/ /g, '_')
   const commonNameHyphenLower = commonName.toLowerCase().replace(/ /g, '-').replace(/'/g, '')
+  const scientificNameHyphen = scientificName.replace(/ /g, '-')
   const scientificNameHyphenLower = scientificName.toLowerCase().replace(/ /g, '-')
   const scientificNamePlus = encodeURIComponent(scientificName)
+
+  // Generate iNat URL - use direct link if we have taxon ID
+  const inatUrl = inatTaxonId
+    ? `https://www.inaturalist.org/taxa/${inatTaxonId}-${scientificNameHyphen}`
+    : `https://www.inaturalist.org/taxa/search?q=${scientificNamePlus}`
 
   const urlPatterns: Record<string, { pattern: string; requires: string }> = {
     ebird: { pattern: `https://ebird.org/species/${ebirdCode || ''}`, requires: 'ebird_code' },
@@ -294,7 +301,7 @@ export function generateBirdLinks(
     bto: { pattern: `https://www.bto.org/understanding-birds/birdfacts/${commonNameHyphenLower}`, requires: 'common_name' },
     xenocanto: { pattern: `https://xeno-canto.org/species/${scientificNameHyphenLower}`, requires: 'scientific_name' },
     wikipedia: { pattern: `https://en.wikipedia.org/wiki/${commonNameUnderscore}`, requires: 'common_name' },
-    inaturalist: { pattern: `https://www.inaturalist.org/taxa/search?q=${scientificNamePlus}`, requires: 'scientific_name' },
+    inaturalist: { pattern: inatUrl, requires: 'scientific_name' },
   }
 
   for (const sourceId of enabledSources) {

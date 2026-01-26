@@ -13,6 +13,74 @@ import type { DailyDetectionCount, NewSpeciesThisWeek, DatabaseStats } from '../
 import type { WeatherRecord } from '../api/weather'
 import type { Data } from 'plotly.js'
 
+// Helper to get bird image URL from our API
+const getBirdImageUrl = (scientificName: string, commonName?: string): string => {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+  let url = `${baseUrl}/images/bird/${encodeURIComponent(scientificName)}`
+  if (commonName) {
+    url += `?common_name=${encodeURIComponent(commonName)}`
+  }
+  return url
+}
+
+// Species card component with thumbnail
+const SpeciesCard: React.FC<{
+  species: NewSpeciesThisWeek
+  birdLinks: Array<{ name: string; url: string; source_id: string }>
+}> = ({ species, birdLinks }) => {
+  const [imageError, setImageError] = useState(false)
+  const imageUrl = getBirdImageUrl(species.scientific_name, species.common_name)
+
+  return (
+    <div className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-white">
+      {/* Bird Image */}
+      <div className="h-32 bg-gray-100 relative">
+        {!imageError ? (
+          <img
+            src={imageUrl}
+            alt={species.common_name}
+            className="w-full h-full object-cover"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <span className="text-4xl">🐦</span>
+          </div>
+        )}
+      </div>
+      <div className="p-4">
+        <div className="font-semibold text-lg">{species.common_name}</div>
+        <div className="text-sm text-muted-foreground italic">
+          {species.scientific_name}
+        </div>
+        <div className="mt-2 text-sm">
+          <span className="text-muted-foreground">First this week: </span>
+          {new Date(species.first_detection_date).toLocaleDateString()}
+        </div>
+        <div className="text-sm">
+          <span className="text-muted-foreground">Detections this week: </span>
+          {species.detection_count}
+        </div>
+        {birdLinks.length > 0 && (
+          <div className="mt-3 pt-2 border-t flex flex-wrap gap-2">
+            {birdLinks.map((link) => (
+              <a
+                key={link.source_id}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition-colors"
+              >
+                {link.name}
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const DailyDetections: React.FC = () => {
   const { startDate, endDate, getStationIdsParam } = useFilters()
   const [dailyData, setDailyData] = useState<DailyDetectionCount[]>([])
@@ -271,7 +339,7 @@ const DailyDetections: React.FC = () => {
           Species whose first-ever detection was this week
         </p>
         {newSpecies.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {newSpecies.map((species) => {
               const birdLinks = generateBirdLinks(
                 species.common_name,
@@ -280,38 +348,11 @@ const DailyDetections: React.FC = () => {
                 birdInfoSources
               )
               return (
-                <div
-                  key={species.species_id}
-                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
-                >
-                  <div className="font-semibold text-lg">{species.common_name}</div>
-                  <div className="text-sm text-muted-foreground italic">
-                    {species.scientific_name}
-                  </div>
-                  <div className="mt-2 text-sm">
-                    <span className="text-muted-foreground">First this week: </span>
-                    {new Date(species.first_detection_date).toLocaleDateString()}
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Detections this week: </span>
-                    {species.detection_count}
-                  </div>
-                  {birdLinks.length > 0 && (
-                    <div className="mt-3 pt-2 border-t flex flex-wrap gap-2">
-                      {birdLinks.map((link) => (
-                        <a
-                          key={link.source_id}
-                          href={link.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition-colors"
-                        >
-                          {link.name}
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <SpeciesCard
+                  key={species.species_id || species.common_name}
+                  species={species}
+                  birdLinks={birdLinks}
+                />
               )
             })}
           </div>

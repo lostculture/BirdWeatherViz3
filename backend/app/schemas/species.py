@@ -42,6 +42,7 @@ class SpeciesResponse(SpeciesBase):
     id: int = Field(..., description="Database ID")
     species_id: Optional[int] = Field(None, description="BirdWeather species ID (null for manual imports)")
     ebird_code: Optional[str] = Field(None, description="eBird species code")
+    inat_taxon_id: Optional[int] = Field(None, description="iNaturalist taxon ID (cached)")
     total_detections: int = Field(0, description="Total detections (cached)")
     first_seen: Optional[datetime] = Field(None, description="First detection time")
     last_seen: Optional[datetime] = Field(None, description="Last detection time")

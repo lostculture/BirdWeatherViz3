@@ -43,6 +43,7 @@ export interface SpeciesResponse {
   scientific_name: string
   family?: string
   ebird_code?: string
+  inat_taxon_id?: number | null
   total_detections: number
   first_seen?: string
   last_seen?: string

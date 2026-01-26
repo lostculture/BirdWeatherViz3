@@ -69,6 +69,47 @@ async def refresh_species_stats(
     return {"success": True, "species_updated": count}
 
 
+@router.get("/inat-taxon/{scientific_name:path}")
+async def get_inat_taxon_id(
+    scientific_name: str,
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Get iNaturalist taxon ID for a species.
+
+    Returns cached ID if available, otherwise fetches from iNaturalist API
+    and caches the result.
+    """
+    from app.services.inaturalist import fetch_inat_taxon_id, generate_inat_url
+
+    repo = SpeciesRepository(db)
+
+    # Check if we have it cached in the species table
+    species = repo.get_by_scientific_name(scientific_name)
+    if species and species.inat_taxon_id:
+        return {
+            "scientific_name": scientific_name,
+            "taxon_id": species.inat_taxon_id,
+            "url": generate_inat_url(scientific_name, species.inat_taxon_id),
+            "cached": True
+        }
+
+    # Fetch from iNaturalist API
+    taxon_id = await fetch_inat_taxon_id(scientific_name)
+
+    # Cache it if we found one and have the species in our DB
+    if taxon_id and species:
+        species.inat_taxon_id = taxon_id
+        db.commit()
+
+    return {
+        "scientific_name": scientific_name,
+        "taxon_id": taxon_id,
+        "url": generate_inat_url(scientific_name, taxon_id),
+        "cached": False
+    }
+
+
 @router.get("/diversity/trend", response_model=List[SpeciesDiversityTrend])
 async def get_diversity_trend(
     start_date: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),

@@ -42,6 +42,8 @@ class Species(Base):
     # External integrations
     ebird_code = Column(String(10), index=True,
                        comment="eBird species code (4-6 characters)")
+    inat_taxon_id = Column(Integer, nullable=True, index=True,
+                          comment="iNaturalist taxon ID (cached from API)")
 
     # Cached statistics (updated periodically)
     total_detections = Column(Integer, default=0,
@@ -76,6 +78,7 @@ class Species(Base):
             "family": self.family,
             "order": self.order,
             "ebird_code": self.ebird_code,
+            "inat_taxon_id": self.inat_taxon_id,
             "total_detections": self.total_detections,
             "first_seen": self.first_seen.isoformat() if self.first_seen else None,
             "last_seen": self.last_seen.isoformat() if self.last_seen else None,

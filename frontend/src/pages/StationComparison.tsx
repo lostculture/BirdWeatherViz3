@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState, useMemo } from 'react'
-import { stationsApi } from '../api'
+import { stationsApi, settingsApi, generateBirdLinks, DEFAULT_BIRD_SOURCES } from '../api'
 import { BarChart } from '../components/charts'
 import type { StationStats } from '../types/api'
 import type { Data } from 'plotly.js'
@@ -23,22 +23,9 @@ const COLORS = {
 // Type for species info from API
 interface SpeciesInfo {
   common_name: string
+  scientific_name: string
   ebird_code?: string
-}
-
-// Helper to generate All About Birds URL
-const getAllAboutBirdsUrl = (commonName: string): string => {
-  const slug = commonName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '')
-  return `https://www.allaboutbirds.org/guide/${slug}`
-}
-
-// Helper to generate eBird URL using species code
-const getEbirdUrl = (species: SpeciesInfo): string => {
-  if (species.ebird_code) {
-    return `https://ebird.org/species/${species.ebird_code}`
-  }
-  // Fallback if no ebird_code
-  return `https://ebird.org/species/${species.common_name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`
+  inat_taxon_id?: number | null
 }
 
 // Expandable species list component
@@ -46,8 +33,9 @@ const ExpandableSpeciesList: React.FC<{
   title: string
   subtitle: string
   species: SpeciesInfo[]
+  birdInfoSources: string[]
   defaultExpanded?: boolean
-}> = ({ title, subtitle, species, defaultExpanded = false }) => {
+}> = ({ title, subtitle, species, birdInfoSources, defaultExpanded = false }) => {
   const [expanded, setExpanded] = useState(defaultExpanded)
 
   return (
@@ -71,32 +59,36 @@ const ExpandableSpeciesList: React.FC<{
         <div className="border-t px-4 pb-4">
           {species.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1 mt-3">
-              {species.map((sp) => (
-                <div
-                  key={sp.common_name}
-                  className="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded text-sm"
-                >
-                  <span className="truncate">{sp.common_name}</span>
-                  <div className="flex gap-2 ml-2 flex-shrink-0">
-                    <a
-                      href={getAllAboutBirdsUrl(sp.common_name)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-indigo-brilliant hover:underline"
-                    >
-                      Info
-                    </a>
-                    <a
-                      href={getEbirdUrl(sp)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-indigo-brilliant hover:underline"
-                    >
-                      eBird
-                    </a>
+              {species.map((sp) => {
+                const links = generateBirdLinks(
+                  sp.common_name,
+                  sp.scientific_name,
+                  sp.ebird_code,
+                  birdInfoSources,
+                  sp.inat_taxon_id
+                )
+                return (
+                  <div
+                    key={sp.common_name}
+                    className="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded text-sm"
+                  >
+                    <span className="truncate">{sp.common_name}</span>
+                    <div className="flex gap-2 ml-2 flex-shrink-0">
+                      {links.map((link) => (
+                        <a
+                          key={link.source_id}
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-indigo-brilliant hover:underline"
+                        >
+                          {link.name}
+                        </a>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <p className="text-muted-foreground text-center py-4">No species in this category</p>
@@ -117,12 +109,23 @@ interface UpSetIntersection {
 const StationComparison: React.FC = () => {
   const [stations, setStations] = useState<StationStats[]>([])
   const [speciesByStation, setSpeciesByStation] = useState<Record<string, SpeciesInfo[]>>({})
+  const [birdInfoSources, setBirdInfoSources] = useState<string[]>(DEFAULT_BIRD_SOURCES)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
+    loadDisplaySettings()
   }, [])
+
+  const loadDisplaySettings = async () => {
+    try {
+      const sources = await settingsApi.getBirdInfoSources()
+      setBirdInfoSources(sources)
+    } catch (err) {
+      console.log('Failed to load display settings, using defaults')
+    }
+  }
 
   const loadData = async () => {
     try {
@@ -384,6 +387,7 @@ const StationComparison: React.FC = () => {
               title="Shared by All Stations"
               subtitle={`Species detected at every station`}
               species={upsetData.sharedByAll}
+              birdInfoSources={birdInfoSources}
               defaultExpanded={true}
             />
 
@@ -396,6 +400,7 @@ const StationComparison: React.FC = () => {
                   title={`Unique to ${stationName}`}
                   subtitle={`Species only detected at this station`}
                   species={uniqueSpecies}
+                  birdInfoSources={birdInfoSources}
                 />
               )
             })}

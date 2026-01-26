@@ -494,14 +494,19 @@ async def get_species_by_station(
     for station in stations:
         # Get unique species for this station
         species_query = (
-            db.query(Species.common_name, Species.ebird_code)
+            db.query(Species.common_name, Species.scientific_name, Species.ebird_code, Species.inat_taxon_id)
             .join(Detection, Species.id == Detection.species_id)
             .filter(Detection.station_id == station.id)
             .distinct()
             .order_by(Species.common_name)
         )
         species_list = [
-            {"common_name": row.common_name, "ebird_code": row.ebird_code}
+            {
+                "common_name": row.common_name,
+                "scientific_name": row.scientific_name,
+                "ebird_code": row.ebird_code,
+                "inat_taxon_id": row.inat_taxon_id
+            }
             for row in species_query.all()
         ]
         result[station.name] = species_list
