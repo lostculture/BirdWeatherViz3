@@ -17,8 +17,9 @@ const Navigation: React.FC = () => {
     { path: '/species-analysis', label: 'Species Analysis' },
     { path: '/species-details', label: 'Species Details' },
     { path: '/species-list', label: 'Species List' },
-    { path: '/stations', label: 'Station Comparison' },
-    { path: '/config', label: 'Configuration' },
+    { path: '/stations', label: 'Stations' },
+    { path: '/advanced-analytics', label: 'Analytics' },
+    { path: '/config', label: 'Config' },
   ]
 
   const isActive = (path: string) => {
@@ -34,7 +35,7 @@ const Navigation: React.FC = () => {
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-2">
             <span className="text-xl font-bold">BirdWeatherViz3</span>
-            <span className="text-sm opacity-80">v1.1.0</span>
+            <span className="text-sm opacity-80">v1.3.0</span>
           </div>
           <div className="flex space-x-1">
             {navItems.map((item) => (

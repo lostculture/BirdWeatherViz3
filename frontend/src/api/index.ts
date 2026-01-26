@@ -6,6 +6,7 @@
  */
 
 export { apiClient } from './client'
+export { analyticsApi } from './analytics'
 export { detectionsApi } from './detections'
 export { speciesApi } from './species'
 export { stationsApi } from './stations'
