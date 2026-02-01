@@ -1,0 +1,72 @@
+# Docker Compose for Public Access via Cloudflare Tunnel
+#
+# This configuration exposes BirdWeatherViz3 to the internet securely
+# using Cloudflare Tunnel. No port forwarding required.
+#
+# Usage:
+#   1. Copy .env.public.example to .env.public and configure
+#   2. Create a Cloudflare Tunnel and get the token
+#   3. Run: docker compose -f docker-compose.public.yml up -d
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: birdweatherviz3-backend-public
+    # No external port exposure - only accessible via internal network
+    expose:
+      - "8000"
+    volumes:
+      - birdweather-public-data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:///./data/db/birdweather.db
+      - CONFIG_PASSWORD=${CONFIG_PASSWORD:?CONFIG_PASSWORD must be set in .env.public}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in .env.public}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      - CORS_ORIGINS=["https://birdweatherviz3-pgh.bionaught.com"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - birdweather-public-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: birdweatherviz3-frontend-public
+    # No external port exposure - only accessible via cloudflared
+    expose:
+      - "80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - birdweather-public-net
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: birdweatherviz3-cloudflared
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN must be set in .env.public}
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - birdweather-public-net
+
+networks:
+  birdweather-public-net:
+    driver: bridge
+
+volumes:
+  birdweather-public-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/richardj/birdweatherviz3-public-data/data

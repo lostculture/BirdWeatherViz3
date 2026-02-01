@@ -13,19 +13,27 @@ import type {
   ConfidenceScatterPoint,
   ConfidenceByHour,
   TemporalDistribution,
+  DawnChorusPoint,
+  WeatherImpact,
+  CoOccurrenceCell,
+  SpeciesSeasonality,
+  MonthlyChampion,
 } from '../api/analytics'
 import type { StationResponse } from '../types/api'
 import type { Data, Layout } from 'plotly.js'
 import Plot from 'react-plotly.js'
 
-// Color scale for heatmaps
+// Color scale for heatmaps - exponential distribution to show low counts better
 const HEATMAP_COLORSCALE: [number, string][] = [
-  [0, '#F8FAFC'],
-  [0.2, '#E0E7FF'],
-  [0.4, '#A5B4FC'],
-  [0.6, '#6366F1'],
-  [0.8, '#4338CA'],
-  [1, '#1E1B4B'],
+  [0, '#F8FAFC'],      // 0%
+  [0.01, '#EEF2FF'],   // 1% - very light
+  [0.05, '#E0E7FF'],   // 5% - light indigo
+  [0.15, '#C7D2FE'],   // 15%
+  [0.30, '#A5B4FC'],   // 30%
+  [0.50, '#818CF8'],   // 50%
+  [0.70, '#6366F1'],   // 70%
+  [0.85, '#4338CA'],   // 85%
+  [1, '#1E1B4B'],      // 100% - darkest
 ]
 
 const AdvancedAnalytics: React.FC = () => {
@@ -35,6 +43,12 @@ const AdvancedAnalytics: React.FC = () => {
   const [scatterData, setScatterData] = useState<ConfidenceScatterPoint[]>([])
   const [confidenceHourData, setConfidenceHourData] = useState<ConfidenceByHour[]>([])
   const [temporalData, setTemporalData] = useState<TemporalDistribution[]>([])
+  const [dawnChorusData, setDawnChorusData] = useState<DawnChorusPoint[]>([])
+  const [weatherData, setWeatherData] = useState<WeatherImpact[]>([])
+  const [precipData, setPrecipData] = useState<WeatherImpact[]>([])
+  const [coOccurrenceData, setCoOccurrenceData] = useState<CoOccurrenceCell[]>([])
+  const [seasonalityData, setSeasonalityData] = useState<SpeciesSeasonality[]>([])
+  const [monthlyChampionsData, setMonthlyChampionsData] = useState<MonthlyChampion[]>([])
   const [stations, setStations] = useState<StationResponse[]>([])
 
   // UI states
@@ -42,7 +56,7 @@ const AdvancedAnalytics: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [selectedStations, setSelectedStations] = useState<number[]>([])
   const [bubbleLimit, setBubbleLimit] = useState(30)
-  const [phenologyYear, setPhenologyYear] = useState(new Date().getFullYear())
+  const [phenologyYear, setPhenologyYear] = useState(0)  // 0 = Rolling 12 months (default)
 
   useEffect(() => {
     loadStations()
@@ -70,9 +84,9 @@ const AdvancedAnalytics: React.FC = () => {
         ? selectedStations.join(',')
         : undefined
 
-      const [bubble, phenology, scatter, confHour, temporal] = await Promise.all([
+      const [bubble, phenology, scatter, confHour, temporal, dawnChorus, weather, precip, coOccurrence, seasonality, champions] = await Promise.all([
         analyticsApi.getSpeciesHourBubble({
-          limit: bubbleLimit,
+          limit: bubbleLimit >= 9999 ? 500 : bubbleLimit,  // Cap at 500 for "All"
           months: 3,
           station_ids: stationIds,
         }),
@@ -94,6 +108,33 @@ const AdvancedAnalytics: React.FC = () => {
           months: 6,
           limit: 15,
         }),
+        analyticsApi.getDawnChorus({
+          station_ids: stationIds,
+          months: 6,
+        }),
+        analyticsApi.getWeatherImpact({
+          station_ids: stationIds,
+          months: 6,
+          analysis_type: 'temperature',
+        }),
+        analyticsApi.getWeatherImpact({
+          station_ids: stationIds,
+          months: 6,
+          analysis_type: 'precipitation',
+        }),
+        analyticsApi.getCoOccurrence({
+          station_ids: stationIds,
+          months: 6,
+          limit: 15,
+        }),
+        analyticsApi.getSpeciesSeasonality({
+          station_ids: stationIds,
+          limit: 30,
+        }),
+        analyticsApi.getMonthlyChampions({
+          station_ids: stationIds,
+          year: phenologyYear,
+        }),
       ])
 
       setBubbleData(bubble)
@@ -101,6 +142,12 @@ const AdvancedAnalytics: React.FC = () => {
       setScatterData(scatter)
       setConfidenceHourData(confHour)
       setTemporalData(temporal)
+      setDawnChorusData(dawnChorus)
+      setWeatherData(weather)
+      setPrecipData(precip)
+      setCoOccurrenceData(coOccurrence)
+      setSeasonalityData(seasonality)
+      setMonthlyChampionsData(champions)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load analytics data')
     } finally {
@@ -108,7 +155,7 @@ const AdvancedAnalytics: React.FC = () => {
     }
   }
 
-  // Prepare bubble chart data
+  // Prepare heatmap chart data (converted from bubble)
   const bubbleChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
     if (bubbleData.length === 0) {
       return { data: [], layout: {} }
@@ -123,23 +170,24 @@ const AdvancedAnalytics: React.FC = () => {
       .sort((a, b) => b.total - a.total)
       .map(s => s.name)
 
-    const maxCount = Math.max(...bubbleData.map(d => d.detection_count))
+    // Build heatmap matrix: species (rows) x hours (columns)
+    const hours = Array.from({ length: 24 }, (_, i) => i)
+    const matrix: number[][] = speciesOrder.map(species => {
+      return hours.map(hour => {
+        const cell = bubbleData.find(d => d.common_name === species && d.hour === hour)
+        return cell?.detection_count || 0
+      })
+    })
 
     return {
       data: [{
-        type: 'scatter',
-        mode: 'markers',
-        x: bubbleData.map(d => d.hour),
-        y: bubbleData.map(d => d.common_name),
-        marker: {
-          size: bubbleData.map(d => Math.sqrt(d.detection_count / maxCount) * 40 + 5),
-          color: bubbleData.map(d => d.detection_count),
-          colorscale: 'Blues',
-          showscale: true,
-          colorbar: { title: { text: 'Detections' } },
-        },
-        text: bubbleData.map(d => `${d.common_name}<br>Hour: ${d.hour}:00<br>Detections: ${d.detection_count}`),
-        hovertemplate: '%{text}<extra></extra>',
+        type: 'heatmap',
+        z: matrix,
+        x: hours,
+        y: speciesOrder,
+        colorscale: HEATMAP_COLORSCALE,
+        hovertemplate: '%{y}<br>Hour: %{x}:00<br>Detections: %{z}<extra></extra>',
+        colorbar: { title: { text: 'Detections' } },
       }],
       layout: {
         title: { text: 'Species Activity by Hour of Day', font: { size: 16 } },
@@ -148,13 +196,11 @@ const AdvancedAnalytics: React.FC = () => {
           tickmode: 'array',
           tickvals: [0, 3, 6, 9, 12, 15, 18, 21],
           ticktext: ['12am', '3am', '6am', '9am', '12pm', '3pm', '6pm', '9pm'],
-          range: [-0.5, 23.5],
         },
         yaxis: {
           title: { text: '' },
-          categoryorder: 'array',
-          categoryarray: speciesOrder.reverse(),
           tickfont: { size: 10 },
+          autorange: 'reversed',
         },
         height: Math.max(400, speciesOrder.length * 20 + 100),
         margin: { l: 150, r: 80, t: 50, b: 50 },
@@ -198,7 +244,7 @@ const AdvancedAnalytics: React.FC = () => {
         colorbar: { title: { text: 'Detections' } },
       }],
       layout: {
-        title: { text: `Phenology Heatmap - ${phenologyYear}`, font: { size: 16 } },
+        title: { text: `Phenology Heatmap - ${phenologyYear === 0 ? 'Rolling 12 Months' : phenologyYear}`, font: { size: 16 } },
         xaxis: {
           title: { text: 'Week of Year' },
           tickangle: -45,
@@ -214,11 +260,20 @@ const AdvancedAnalytics: React.FC = () => {
     }
   }, [phenologyData, phenologyYear])
 
-  // Prepare confidence scatter data
+  // Prepare confidence scatter data - distinct colors per species
   const scatterChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
     if (scatterData.length === 0) {
       return { data: [], layout: {} }
     }
+
+    // Create a color for each species
+    const colors = [
+      '#4338CA', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899',
+      '#14B8A6', '#F97316', '#6366F1', '#84CC16', '#06B6D4', '#E11D48',
+      '#7C3AED', '#059669', '#D97706', '#DC2626', '#9333EA', '#DB2777',
+      '#0D9488', '#EA580C', '#4F46E5', '#65A30D', '#0891B2', '#BE123C',
+      '#6D28D9', '#047857', '#B45309', '#B91C1C', '#7E22CE', '#BE185D',
+    ]
 
     return {
       data: [{
@@ -227,18 +282,11 @@ const AdvancedAnalytics: React.FC = () => {
         x: scatterData.map(d => d.total_detections),
         y: scatterData.map(d => d.avg_confidence),
         text: scatterData.map(d => d.common_name),
-        textposition: 'top center',
-        textfont: { size: 9 },
         marker: {
-          size: scatterData.map(d => Math.sqrt(d.detection_days) * 3 + 8),
-          color: scatterData.map(d => d.avg_confidence),
-          colorscale: 'RdYlGn',
-          cmin: 0.5,
-          cmax: 1.0,
-          showscale: true,
-          colorbar: { title: { text: 'Confidence' } },
+          size: 10,
+          color: scatterData.map((_, idx) => colors[idx % colors.length]),
         },
-        hovertemplate: '%{text}<br>Detections: %{x}<br>Avg Confidence: %{y:.2f}<br>Detection Days: %{marker.size}<extra></extra>',
+        hovertemplate: '%{text}<br>Detections: %{x:,}<br>Avg Confidence: %{y:.2f}<extra></extra>',
       }],
       layout: {
         title: { text: 'Detection Count vs Average Confidence', font: { size: 16 } },
@@ -251,7 +299,7 @@ const AdvancedAnalytics: React.FC = () => {
           range: [0.5, 1.02],
         },
         height: 500,
-        margin: { l: 60, r: 80, t: 50, b: 50 },
+        margin: { l: 60, r: 20, t: 50, b: 50 },
         showlegend: false,
       },
     }
@@ -292,10 +340,10 @@ const AdvancedAnalytics: React.FC = () => {
           tickfont: { size: 10 },
         },
         yaxis: {
-          title: { text: 'Confidence Range' },
+          title: { text: 'Confidence Range', standoff: 15 },
         },
         height: 350,
-        margin: { l: 80, r: 80, t: 50, b: 80 },
+        margin: { l: 100, r: 80, t: 50, b: 80 },
       },
     }
   }, [confidenceHourData])
@@ -350,6 +398,242 @@ const AdvancedAnalytics: React.FC = () => {
       },
     }
   }, [temporalData])
+
+  // Prepare dawn chorus chart data
+  const dawnChorusChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
+    if (dawnChorusData.length === 0) {
+      return { data: [], layout: {} }
+    }
+
+    return {
+      data: [
+        {
+          type: 'bar',
+          x: dawnChorusData.map(d => d.minutes_from_sunrise),
+          y: dawnChorusData.map(d => d.detection_count),
+          marker: {
+            color: dawnChorusData.map(d => d.species_count),
+            colorscale: 'YlOrRd',
+            showscale: true,
+            colorbar: { title: { text: 'Species' } },
+          },
+          hovertemplate: '%{x} min from sunrise<br>%{y} detections<br>%{marker.color} species<extra></extra>',
+        },
+      ],
+      layout: {
+        title: { text: 'Dawn Chorus Analysis', font: { size: 16 } },
+        xaxis: {
+          title: { text: 'Minutes from Sunrise' },
+          zeroline: true,
+          zerolinecolor: '#FF6B00',
+          zerolinewidth: 2,
+        },
+        yaxis: {
+          title: { text: 'Detection Count' },
+        },
+        height: 400,
+        margin: { l: 60, r: 80, t: 50, b: 50 },
+        shapes: [{
+          type: 'line',
+          x0: 0,
+          x1: 0,
+          y0: 0,
+          y1: 1,
+          yref: 'paper',
+          line: { color: '#FF6B00', width: 2, dash: 'dash' },
+        }],
+        annotations: [{
+          x: 0,
+          y: 1.05,
+          yref: 'paper',
+          text: 'Sunrise',
+          showarrow: false,
+          font: { color: '#FF6B00', size: 12 },
+        }],
+      },
+    }
+  }, [dawnChorusData])
+
+  // Prepare weather impact chart data
+  const weatherChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
+    if (weatherData.length === 0) {
+      return { data: [], layout: {} }
+    }
+
+    const labels = weatherData.map(d => d.temperature_bin || d.condition || 'Unknown')
+    const avgDetections = weatherData.map(d => d.avg_detections)
+    const observationCounts = weatherData.map(d => d.observation_count)
+
+    return {
+      data: [{
+        type: 'bar',
+        x: labels,
+        y: avgDetections,
+        marker: {
+          color: avgDetections,
+          colorscale: 'Blues',
+        },
+        text: avgDetections.map((avg, i) => `${avg.toFixed(0)}<br>(${observationCounts[i]} days)`),
+        textposition: 'inside',
+        textangle: 0,
+        textfont: { color: 'white', size: 10 },
+        hovertemplate: '%{x}<br>Avg: %{y:.1f} detections<br>%{customdata} days<extra></extra>',
+        customdata: observationCounts,
+      }],
+      layout: {
+        title: { text: 'Average Daily Detections by Temperature Range', font: { size: 14 } },
+        xaxis: {
+          title: { text: 'Temperature Range' },
+          tickangle: -45,
+        },
+        yaxis: {
+          title: { text: 'Average Daily Detections' },
+          rangemode: 'tozero',
+        },
+        height: 450,
+        margin: { l: 60, r: 20, t: 50, b: 100 },
+        bargap: 0.2,
+      },
+    }
+  }, [weatherData])
+
+  // Prepare precipitation impact chart data
+  const precipChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
+    if (precipData.length === 0) {
+      return { data: [], layout: {} }
+    }
+
+    const labels = precipData.map(d => d.temperature_bin || d.condition || 'Unknown')
+    const avgDetections = precipData.map(d => d.avg_detections)
+    const observationCounts = precipData.map(d => d.observation_count)
+
+    // Color map for precipitation categories
+    const colorMap: { [key: string]: string } = {
+      'No Precip': '#FCD34D',    // Yellow/sunny
+      'Light Rain': '#93C5FD',   // Light blue
+      'Moderate Rain': '#3B82F6', // Medium blue
+      'Heavy Rain': '#1D4ED8',   // Dark blue
+      'Snow': '#E5E7EB',         // Light gray/white
+    }
+
+    return {
+      data: [{
+        type: 'bar',
+        x: labels,
+        y: avgDetections,
+        marker: {
+          color: labels.map(l => colorMap[l] || '#6B7280'),
+        },
+        text: avgDetections.map((avg, i) => `${avg.toFixed(0)}<br>(${observationCounts[i]} days)`),
+        textposition: 'inside',
+        textangle: 0,
+        textfont: { color: 'white', size: 10 },
+        hovertemplate: '%{x}<br>Avg: %{y:.1f} detections<br>%{customdata} days<extra></extra>',
+        customdata: observationCounts,
+      }],
+      layout: {
+        title: { text: 'Average Daily Detections by Precipitation Level', font: { size: 14 } },
+        xaxis: {
+          title: { text: 'Weather Condition' },
+          tickangle: -45,
+        },
+        yaxis: {
+          title: { text: 'Average Daily Detections' },
+          rangemode: 'tozero',
+        },
+        height: 450,
+        margin: { l: 60, r: 20, t: 50, b: 100 },
+        bargap: 0.2,
+      },
+    }
+  }, [precipData])
+
+  // Prepare co-occurrence matrix data
+  const coOccurrenceChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
+    if (coOccurrenceData.length === 0) {
+      return { data: [], layout: {} }
+    }
+
+    // Get unique species names
+    const speciesNames = [...new Set(coOccurrenceData.map(d => d.species_1))]
+
+    // Build matrix
+    const matrix: number[][] = speciesNames.map(sp1 => {
+      return speciesNames.map(sp2 => {
+        const cell = coOccurrenceData.find(d => d.species_1 === sp1 && d.species_2 === sp2)
+        return cell?.jaccard_index || 0
+      })
+    })
+
+    return {
+      data: [{
+        type: 'heatmap',
+        z: matrix,
+        x: speciesNames,
+        y: speciesNames,
+        colorscale: [
+          [0, '#FFFFFF'],
+          [0.25, '#E0E7FF'],
+          [0.5, '#818CF8'],
+          [0.75, '#4338CA'],
+          [1, '#1E1B4B'],
+        ],
+        hovertemplate: '%{y} & %{x}<br>Jaccard Index: %{z:.3f}<extra></extra>',
+        colorbar: { title: { text: 'Jaccard' } },
+      }],
+      layout: {
+        title: { text: 'Species Co-occurrence Matrix', font: { size: 16 } },
+        xaxis: {
+          tickangle: -45,
+          tickfont: { size: 9 },
+        },
+        yaxis: {
+          tickfont: { size: 9 },
+        },
+        height: Math.max(500, speciesNames.length * 25 + 150),
+        margin: { l: 120, r: 80, t: 50, b: 120 },
+      },
+    }
+  }, [coOccurrenceData])
+
+  // Prepare seasonality timeline data
+  const seasonalityChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
+    if (seasonalityData.length === 0) {
+      return { data: [], layout: {} }
+    }
+
+    // Sort by first seen date
+    const sorted = [...seasonalityData].sort((a, b) =>
+      new Date(a.first_seen).getTime() - new Date(b.first_seen).getTime()
+    )
+
+    return {
+      data: [{
+        type: 'scatter',
+        mode: 'lines+markers',
+        x: sorted.flatMap(d => [d.first_seen, d.last_seen, null]),
+        y: sorted.flatMap(d => [d.common_name, d.common_name, null]),
+        line: { color: '#6366F1', width: 6 },
+        marker: { size: 10, color: '#4338CA' },
+        connectgaps: false,
+        hoverinfo: 'skip',
+      }],
+      layout: {
+        title: { text: 'Species First/Last Sighting Timeline', font: { size: 16 } },
+        xaxis: {
+          title: { text: 'Date' },
+          type: 'date',
+        },
+        yaxis: {
+          title: { text: '' },
+          tickfont: { size: 10 },
+        },
+        height: Math.max(400, sorted.length * 20 + 100),
+        margin: { l: 150, r: 20, t: 50, b: 50 },
+        showlegend: false,
+      },
+    }
+  }, [seasonalityData])
 
   const handleStationToggle = (stationId: number) => {
     setSelectedStations(prev =>
@@ -416,10 +700,10 @@ const AdvancedAnalytics: React.FC = () => {
             </div>
           </div>
 
-          {/* Bubble Chart Limit */}
+          {/* Heatmap Species Limit */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Species Limit (Bubble)
+              Species Limit (Heatmap)
             </label>
             <select
               value={bubbleLimit}
@@ -429,19 +713,22 @@ const AdvancedAnalytics: React.FC = () => {
               <option value={20}>Top 20</option>
               <option value={30}>Top 30</option>
               <option value={50}>Top 50</option>
+              <option value={100}>Top 100</option>
+              <option value={9999}>All</option>
             </select>
           </div>
 
-          {/* Phenology Year */}
+          {/* Phenology Period */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Phenology Year
+              Phenology Period
             </label>
             <select
               value={phenologyYear}
               onChange={(e) => setPhenologyYear(Number(e.target.value))}
               className="px-3 py-1 border rounded text-sm"
             >
+              <option value={0}>Rolling 12 Months</option>
               {[2024, 2025, 2026].map(year => (
                 <option key={year} value={year}>{year}</option>
               ))}
@@ -558,6 +845,172 @@ const AdvancedAnalytics: React.FC = () => {
               No data available
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Dawn Chorus & Weather Section */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">Environmental Factors</h2>
+
+        {/* Dawn Chorus - Full Width */}
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-sm text-muted-foreground mb-2">
+            Detection activity relative to sunrise. The dawn chorus phenomenon peaks just before and after sunrise.
+          </p>
+          {dawnChorusData.length > 0 ? (
+            <Plot
+              data={dawnChorusChartData.data}
+              layout={dawnChorusChartData.layout}
+              config={{ responsive: true, displayModeBar: false }}
+              style={{ width: '100%' }}
+            />
+          ) : (
+            <div className="h-64 flex items-center justify-center text-muted-foreground">
+              No sunrise data available
+            </div>
+          )}
+        </div>
+
+        {/* Weather Charts Side by Side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Temperature Impact */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-sm text-muted-foreground mb-2">
+              Average daily detections by temperature range.
+            </p>
+            {weatherData.length > 0 ? (
+              <Plot
+                data={weatherChartData.data}
+                layout={weatherChartData.layout}
+                config={{ responsive: true, displayModeBar: false }}
+                style={{ width: '100%' }}
+              />
+            ) : (
+              <div className="h-64 flex items-center justify-center text-muted-foreground">
+                No weather data available
+              </div>
+            )}
+          </div>
+
+          {/* Precipitation Impact */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-sm text-muted-foreground mb-2">
+              Average daily detections by precipitation level.
+            </p>
+            {precipData.length > 0 ? (
+              <Plot
+                data={precipChartData.data}
+                layout={precipChartData.layout}
+                config={{ responsive: true, displayModeBar: false }}
+                style={{ width: '100%' }}
+              />
+            ) : (
+              <div className="h-64 flex items-center justify-center text-muted-foreground">
+                No precipitation data available
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Species Relationships Section */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">Species Relationships</h2>
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-sm text-muted-foreground mb-2">
+            Species co-occurrence based on Jaccard similarity index. Higher values (darker) indicate species frequently detected on the same days.
+          </p>
+          {coOccurrenceData.length > 0 ? (
+            <Plot
+              data={coOccurrenceChartData.data}
+              layout={coOccurrenceChartData.layout}
+              config={{ responsive: true, displayModeBar: false }}
+              style={{ width: '100%' }}
+            />
+          ) : (
+            <div className="h-64 flex items-center justify-center text-muted-foreground">
+              No data available
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Seasonality & Champions Section */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">Seasonality & Champions</h2>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {/* Species Seasonality Timeline */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-sm text-muted-foreground mb-2">
+              First and last detection dates for each species. Shows presence periods across the data.
+            </p>
+            {seasonalityData.length > 0 ? (
+              <Plot
+                data={seasonalityChartData.data}
+                layout={seasonalityChartData.layout}
+                config={{ responsive: true, displayModeBar: false }}
+                style={{ width: '100%' }}
+              />
+            ) : (
+              <div className="h-64 flex items-center justify-center text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </div>
+
+          {/* Monthly Champions Table */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <h3 className="text-lg font-semibold mb-2">Monthly Detection Champions (Rolling 12 Months)</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              The most detected species each month over the past 12 months. Shows which birds dominate each season.
+            </p>
+            {monthlyChampionsData.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Month
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Top Species
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Detections
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        % of Month
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {monthlyChampionsData.map((champion, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {champion.month_name}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                          {champion.common_name}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">
+                          {champion.detection_count.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 text-right">
+                          {champion.percentage_of_month.toFixed(1)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="h-32 flex items-center justify-center text-muted-foreground">
+                No data available for {phenologyYear}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

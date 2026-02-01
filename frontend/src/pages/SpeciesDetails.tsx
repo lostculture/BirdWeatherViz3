@@ -488,7 +488,7 @@ const SpeciesDetails: React.FC = () => {
               data={prepareTimelineData()}
               layout={{
                 xaxis: { title: { text: 'Date' } },
-                yaxis: { title: { text: 'Number of Detections' } },
+                yaxis: { title: { text: 'Number of Detections' }, rangemode: 'tozero' },
                 height: 350,
                 legend: { orientation: 'h', y: -0.2 },
               }}
@@ -516,9 +516,10 @@ const SpeciesDetails: React.FC = () => {
               <BarChart
                 data={prepareConfidenceData()}
                 layout={{
-                  xaxis: { title: { text: 'Station' } },
+                  xaxis: { title: { text: 'Station' }, tickangle: -45 },
                   yaxis: { title: { text: 'Average Confidence' }, range: [0, 1] },
                   height: 350,
+                  margin: { b: 120 },
                 }}
               />
             </div>

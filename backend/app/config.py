@@ -33,11 +33,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     CONFIG_PASSWORD: str = "changeme"
 
-    # CORS
-    CORS_ORIGINS: list = ["*"]
+    # CORS - For public deployment, set specific origins
+    # For local development: ["http://localhost:3001", "http://127.0.0.1:3001"]
+    # For production: ["https://your-domain.com"]
+    CORS_ORIGINS: list = ["http://localhost:3001", "http://127.0.0.1:3001"]
     CORS_CREDENTIALS: bool = True
-    CORS_METHODS: list = ["*"]
-    CORS_HEADERS: list = ["*"]
+    CORS_METHODS: list = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    CORS_HEADERS: list = ["Authorization", "Content-Type"]
 
     # Auto-Update Settings
     AUTO_UPDATE_ENABLED: bool = True

@@ -8,12 +8,18 @@ Version: 1.0.0
 from fastapi import APIRouter
 
 # Import endpoint routers as they are created
-from app.api.v1 import detections, species, stations, settings, weather, images, analytics
+from app.api.v1 import auth, detections, species, stations, settings, weather, images, analytics
 
 # Create main v1 router
 router = APIRouter()
 
 # Include endpoint routers
+router.include_router(
+    auth.router,
+    prefix="/auth",
+    tags=["authentication"]
+)
+
 router.include_router(
     detections.router,
     prefix="/detections",

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from typing import List, Generator
 import json
 
-from app.api.deps import get_db_dependency
+from app.api.deps import get_db_dependency, get_current_user
 from app.repositories.station import StationRepository
 from app.repositories.detection import DetectionRepository
 from app.repositories.species import SpeciesRepository
@@ -90,7 +90,8 @@ async def get_station_comparison(
 
 @router.post("/sync-all", response_model=SyncAllResponse)
 async def sync_all_stations(
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Sync all active stations.
@@ -182,7 +183,8 @@ async def sync_all_stations(
 
 @router.post("/sync-all-stream")
 async def sync_all_stations_stream(
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Sync all active stations with streaming progress updates.
@@ -361,7 +363,8 @@ async def get_station(
 @router.post("/", response_model=StationResponse, status_code=201)
 async def create_station(
     station_data: StationCreate,
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Create a new station.
@@ -404,7 +407,8 @@ async def create_station(
 async def update_station(
     station_id: int,
     station_data: StationUpdate,
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Update an existing station.
@@ -428,7 +432,8 @@ async def update_station(
 @router.delete("/{station_id}", status_code=204)
 async def delete_station(
     station_id: int,
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Delete a station.
@@ -683,7 +688,8 @@ def _sync_station_detections(
 @router.post("/{station_id}/sync", response_model=SyncResponse)
 async def sync_station_data(
     station_id: int,
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Intelligent sync: fetch detections from current date back to last detection in database.

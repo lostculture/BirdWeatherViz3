@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from datetime import date, datetime, time, timedelta
 import logging
 
-from app.api.deps import get_db_dependency
+from app.api.deps import get_db_dependency, get_current_user
 from app.db.models.weather import Weather
 from app.db.models.station import Station
 from app.db.models.detection import Detection
@@ -134,7 +134,8 @@ async def get_weather_station_setting(db: Session = Depends(get_db_dependency)):
 @router.put("/station-setting/{station_id}", response_model=WeatherStationSetting)
 async def set_weather_station(
     station_id: int,
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Set the station to use for weather data.
@@ -416,7 +417,8 @@ def _sync_weather_internal(db: Session) -> dict:
 
 @router.post("/sync", response_model=WeatherSyncResponse)
 async def sync_weather_for_detection_days(
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Intelligently sync weather data for all days that have detections.

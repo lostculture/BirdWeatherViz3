@@ -6,16 +6,18 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { speciesApi } from '../api'
+import { speciesApi, analyticsApi } from '../api'
 import { LineChart } from '../components/charts'
 import { useFilters } from '../context/FilterContext'
 import type { SpeciesDiversityTrend, SpeciesDiscoveryCurve } from '../types/api'
+import type { WeeklyTrend } from '../api/analytics'
 import type { Data } from 'plotly.js'
 
 const SpeciesAnalysis: React.FC = () => {
   const { startDate, endDate, getStationIdsParam } = useFilters()
   const [diversityData, setDiversityData] = useState<SpeciesDiversityTrend[]>([])
   const [discoveryData, setDiscoveryData] = useState<SpeciesDiscoveryCurve[]>([])
+  const [weeklyTrendsData, setWeeklyTrendsData] = useState<WeeklyTrend[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,13 +38,18 @@ const SpeciesAnalysis: React.FC = () => {
         station_ids: getStationIdsParam(),
       }
 
-      const [diversity, discovery] = await Promise.all([
+      const [diversity, discovery, weekly] = await Promise.all([
         speciesApi.getDiversityTrend(filterParams),
         speciesApi.getDiscoveryCurve(filterParams),
+        analyticsApi.getWeeklyTrends({
+          station_ids: getStationIdsParam(),
+          months: 12,
+        }),
       ])
 
       setDiversityData(diversity)
       setDiscoveryData(discovery)
+      setWeeklyTrendsData(weekly)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -81,6 +88,31 @@ const SpeciesAnalysis: React.FC = () => {
         mode: 'lines' as const,
         fill: 'tozeroy' as const,
         line: { color: '#10b981', width: 2 },
+      },
+    ]
+  }
+
+  const prepareWeeklyTrendsChart = (): Data[] => {
+    return [
+      {
+        x: weeklyTrendsData.map((d) => d.week_start),
+        y: weeklyTrendsData.map((d) => d.total_detections),
+        name: 'Total Detections',
+        type: 'scatter' as const,
+        mode: 'lines+markers' as const,
+        line: { color: '#4338CA', width: 2 },
+        marker: { size: 4 },
+        yaxis: 'y',
+      },
+      {
+        x: weeklyTrendsData.map((d) => d.week_start),
+        y: weeklyTrendsData.map((d) => d.unique_species),
+        name: 'Unique Species',
+        type: 'scatter' as const,
+        mode: 'lines+markers' as const,
+        line: { color: '#10B981', width: 2 },
+        marker: { size: 4 },
+        yaxis: 'y2',
       },
     ]
   }
@@ -185,6 +217,35 @@ const SpeciesAnalysis: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Weekly Detection Trends */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-semibold mb-4">Weekly Detection Trends</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          Weekly detection totals and species diversity over the past year
+        </p>
+        {weeklyTrendsData.length > 0 ? (
+          <LineChart
+            data={prepareWeeklyTrendsChart()}
+            layout={{
+              title: { text: 'Weekly Detection Totals & Species Count' },
+              xaxis: { title: { text: 'Week' }, type: 'date' },
+              yaxis: { title: { text: 'Total Detections', font: { color: '#4338CA' } }, side: 'left' },
+              yaxis2: {
+                title: { text: 'Unique Species', font: { color: '#10B981' } },
+                side: 'right',
+                overlaying: 'y',
+              },
+              height: 450,
+              legend: { orientation: 'h', y: -0.15 },
+            }}
+          />
+        ) : (
+          <div className="text-center text-muted-foreground py-8">
+            No weekly trends data available
+          </div>
+        )}
+      </div>
     </div>
   )
 }

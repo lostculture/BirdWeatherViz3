@@ -35,7 +35,7 @@ const Navigation: React.FC = () => {
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-2">
             <span className="text-xl font-bold">BirdWeatherViz3</span>
-            <span className="text-sm opacity-80">v1.3.0</span>
+            <span className="text-sm opacity-80">v1.4.0</span>
           </div>
           <div className="flex space-x-1">
             {navItems.map((item) => (

@@ -10,6 +10,9 @@ services:
       - birdweather-data:/app/data
     environment:
       - DATABASE_URL=sqlite:///./data/db/birdweather.db
+      - CONFIG_PASSWORD=birdsecure123
+      - JWT_SECRET=birdweather-jwt-secret-change-in-production
+      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]

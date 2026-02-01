@@ -149,16 +149,18 @@ export const settingsApi = {
     const formData = new FormData()
     formData.append('file', file)
 
-    // Use axios for file upload to properly handle proxy
+    // Use axios for file upload with auth token
     const axios = (await import('axios')).default
+    const token = localStorage.getItem('auth_token')
     const response = await axios.post<TaxonomyUploadResponse>(
       '/api/v1/settings/ebird-taxonomy',
       formData,
       {
         headers: {
           'Content-Type': 'multipart/form-data',
+          ...(token && { Authorization: `Bearer ${token}` }),
         },
-        timeout: 120000, // 2 minute timeout for large files
+        timeout: 180000, // 3 minute timeout for large files
       }
     )
 
@@ -180,12 +182,14 @@ export const settingsApi = {
     formData.append('file', file)
 
     const axios = (await import('axios')).default
+    const token = localStorage.getItem('auth_token')
     const response = await axios.post<DetectionUploadResponse>(
       '/api/v1/settings/detections/upload',
       formData,
       {
         headers: {
           'Content-Type': 'multipart/form-data',
+          ...(token && { Authorization: `Bearer ${token}` }),
         },
         timeout: 600000, // 10 minute timeout for large files
       }

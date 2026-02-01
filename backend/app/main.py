@@ -5,14 +5,17 @@ Main entry point for the API server.
 Version: 1.0.0
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 import logging
 
 from app.config import settings
 from app.version import __version__, get_version_info
 from app.db.session import create_tables
+from app.core.rate_limit import limiter
 
 # Configure logging
 logging.basicConfig(
@@ -31,6 +34,10 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json"
 )
 
+# Configure rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -48,7 +55,9 @@ async def startup_event():
     Initializes database tables and performs setup tasks.
     """
     logger.info(f"Starting {settings.APP_NAME} v{__version__}")
-    logger.info(f"Database URL: {settings.DATABASE_URL}")
+    # Log database type only, not the full URL (may contain credentials)
+    db_type = settings.DATABASE_URL.split("://")[0] if "://" in settings.DATABASE_URL else "unknown"
+    logger.info(f"Database type: {db_type}")
 
     # Create database tables if they don't exist
     try:

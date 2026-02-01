@@ -69,3 +69,57 @@ class WeatherImpact(BaseModel):
     avg_detections: float
     total_detections: int
     observation_count: int  # Number of time periods
+
+
+class DawnChorusPoint(BaseModel):
+    """Data point for dawn chorus analysis (sunrise-relative)."""
+
+    minutes_from_sunrise: int  # Negative = before sunrise
+    detection_count: int
+    species_count: int  # Number of unique species
+
+
+class WeeklyTrend(BaseModel):
+    """Data point for weekly detection trends."""
+
+    week_start: date
+    year: int
+    week_number: int
+    total_detections: int
+    unique_species: int
+    avg_daily_detections: float
+
+
+class CoOccurrenceCell(BaseModel):
+    """Data point for species co-occurrence matrix."""
+
+    species_1: str
+    species_2: str
+    co_occurrence_days: int
+    species_1_total_days: int
+    species_2_total_days: int
+    jaccard_index: float  # Intersection / Union
+
+
+class SpeciesSeasonality(BaseModel):
+    """Data point for species first/last sighting timeline."""
+
+    species_id: int
+    common_name: str
+    first_seen: date
+    last_seen: date
+    peak_month: int
+    peak_month_name: str
+    total_detections: int
+    active_days: int
+
+
+class MonthlyChampion(BaseModel):
+    """Data point for monthly detection champion."""
+
+    month: int
+    month_name: str
+    species_id: int
+    common_name: str
+    detection_count: int
+    percentage_of_month: float  # % of that month's detections

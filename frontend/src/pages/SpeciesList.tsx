@@ -12,11 +12,7 @@ import { useFilters } from '../context/FilterContext'
 import type { FamilyStats, SpeciesResponse } from '../types/api'
 import type { Data } from 'plotly.js'
 
-// Helper to generate All About Birds URL
-const getAllAboutBirdsUrl = (commonName: string): string => {
-  const slug = commonName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '')
-  return `https://www.allaboutbirds.org/guide/${slug}`
-}
+import { Link } from 'react-router-dom'
 
 // Helper to get bird image URL
 const getBirdImageUrl = (scientificName: string, commonName?: string): string => {
@@ -57,25 +53,13 @@ const SpeciesCard: React.FC<{ species: SpeciesResponse }> = ({ species }) => {
         <div className="text-xs text-muted-foreground mt-1">
           {species.total_detections?.toLocaleString() || 0} detections
         </div>
-        <div className="mt-2 flex gap-2">
-          <a
-            href={getAllAboutBirdsUrl(species.common_name)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-indigo-brilliant hover:underline text-xs"
+        <div className="mt-2">
+          <Link
+            to={`/species-details?id=${species.id}`}
+            className="text-indigo-brilliant hover:underline text-xs font-medium"
           >
-            Info
-          </a>
-          {species.ebird_code && (
-            <a
-              href={`https://ebird.org/species/${species.ebird_code}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-indigo-brilliant hover:underline text-xs"
-            >
-              eBird
-            </a>
-          )}
+            Details
+          </Link>
         </div>
       </div>
     </div>

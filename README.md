@@ -1,8 +1,8 @@
 # BirdWeatherViz3 🐦
 
-**Version:** 1.0.0
+**Version:** 1.3.0
 
-Next-generation bird detection visualization application built with FastAPI + React, packaged as a single Docker container with persistent storage.
+Next-generation bird detection visualization application built with FastAPI + React, with Docker deployment and optional public access via Cloudflare Tunnel.
 
 ## Overview
 
@@ -15,7 +15,9 @@ BirdWeatherViz3 is a modern, API-first bird monitoring analytics platform that v
 ✅ **Intelligent Auto-Update** - Automatically fetch new detections with smart backfill (30 days)
 ✅ **Weather Integration** - Historical and current weather data for all detection days
 ✅ **Notification System** - Apprise integration supporting 80+ notification services
-✅ **Single Docker Container** - Everything packaged in one container with persistent storage
+✅ **Password Protection** - JWT authentication with bcrypt password hashing for configuration pages
+✅ **Rate Limiting** - Protection against brute force attacks on login endpoints
+✅ **Public Deployment** - Optional Cloudflare Tunnel integration for secure public access
 ✅ **SQLite Database** - Zero configuration, file-based database
 ✅ **RESTful API** - Clean FastAPI backend with OpenAPI documentation
 ✅ **Modern Frontend** - React + TypeScript with responsive design
@@ -51,39 +53,37 @@ BirdWeatherViz3 is a modern, API-first bird monitoring analytics platform that v
 
 ```
 BirdWeatherViz3/
-├── backend/                 # FastAPI application
+├── backend/                      # FastAPI application
 │   ├── app/
-│   │   ├── api/v1/         # API endpoints
-│   │   ├── core/           # Auth, security, logging
-│   │   ├── db/models/      # SQLAlchemy models
-│   │   ├── schemas/        # Pydantic schemas
-│   │   ├── services/       # Business logic
-│   │   ├── repositories/   # Data access layer
-│   │   └── utils/          # Utilities
-│   ├── tests/              # Backend tests
-│   └── requirements.txt    # Python dependencies
+│   │   ├── api/v1/              # API endpoints
+│   │   ├── core/                # Rate limiting, security
+│   │   ├── db/models/           # SQLAlchemy models
+│   │   ├── schemas/             # Pydantic schemas
+│   │   ├── services/            # Business logic
+│   │   ├── repositories/        # Data access layer
+│   │   └── utils/               # Utilities
+│   ├── Dockerfile               # Backend container
+│   ├── reset_password.py        # Password reset CLI
+│   └── requirements.txt         # Python dependencies
 │
-├── frontend/                # React application
+├── frontend/                     # React application
 │   ├── src/
-│   │   ├── api/            # API client
-│   │   ├── components/     # React components
-│   │   ├── pages/          # Page components (tabs)
-│   │   ├── hooks/          # Custom React hooks
-│   │   └── stores/         # State management
-│   └── package.json        # Node dependencies
+│   │   ├── api/                 # API client + auth
+│   │   ├── components/          # React components
+│   │   ├── pages/               # Page components
+│   │   ├── hooks/               # Custom React hooks
+│   │   └── stores/              # State management
+│   ├── Dockerfile               # Frontend container
+│   ├── nginx.conf               # Nginx configuration
+│   └── package.json             # Node dependencies
 │
-├── docker/                  # Docker configuration
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   ├── nginx.conf
-│   └── supervisord.conf
+├── docker-compose.yml            # Local development
+├── docker-compose.public.yml     # Public deployment (Cloudflare)
+├── docker-compose.public-test.yml # Public testing (with ports)
+├── .env.public                   # Public instance secrets
 │
-├── scripts/                 # Utility scripts
-│   ├── init_db.py
-│   └── migrate_v1_data.py
-│
-├── notes/                   # Old Streamlit app (excluded from git)
-└── .gitignore
+├── .beads/                       # Beads issue tracking
+└── .claude/                      # Claude Code settings
 ```
 
 ## Quick Start
@@ -119,31 +119,47 @@ These scripts automatically:
 
 **See [TESTING.md](TESTING.md) for detailed testing instructions.**
 
-### Option 2: Docker (Production)
+### Option 2: Docker Compose (Recommended)
 
 ```bash
-# Build the image
-docker build -f docker/Dockerfile -t birdweatherviz3:latest .
+# Start backend and frontend services
+docker compose up -d --build
 
-# Run the container
-docker run -d \
-  --name birdweatherviz3 \
-  -p 8080:8080 \
-  -v $(pwd)/data:/data \
-  -e CONFIG_PASSWORD=your-secure-password \
-  --restart unless-stopped \
-  birdweatherviz3:latest
-
-# Access at http://localhost:8080
+# Access frontend at http://localhost:3001
+# Backend API at http://localhost:8001
 ```
 
-### Option 3: Docker Compose (Development)
+The default `docker-compose.yml` runs:
+- **Backend** on port 8001 (FastAPI)
+- **Frontend** on port 3001 (Nginx serving React)
+
+### Option 3: Public Deployment with Cloudflare Tunnel
+
+For secure public access without port forwarding:
 
 ```bash
-# Start all services
-docker-compose -f docker/docker-compose.yml up --build
+# 1. Create .env.public with your secrets
+cp .env.public.example .env.public
+# Edit .env.public with CONFIG_PASSWORD, JWT_SECRET, CLOUDFLARE_TUNNEL_TOKEN
 
-# Access at http://localhost:8080
+# 2. Start the public instance
+docker compose -p birdweatherviz3-public -f docker-compose.public.yml --env-file .env.public up -d
+
+# No ports exposed - all traffic goes through Cloudflare
+```
+
+See [CLOUDFLARE_TUNNEL_SETUP.md](CLOUDFLARE_TUNNEL_SETUP.md) for detailed instructions.
+
+### Running Multiple Instances
+
+You can run both local development and public instances simultaneously:
+
+```bash
+# Local development instance
+docker compose -p birdweatherviz3-dev up -d
+
+# Public instance (uses separate data volume)
+docker compose -p birdweatherviz3-public -f docker-compose.public.yml --env-file .env.public up -d
 ```
 
 ### Option 4: Manual Local Development
@@ -199,12 +215,31 @@ npm run dev
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | SQLite database path | `sqlite:///data/db/birdweather.db` |
-| `CONFIG_PASSWORD` | Admin password | `changeme` |
-| `JWT_SECRET` | JWT token secret | (generate random) |
+| `DATABASE_URL` | SQLite database path | `sqlite:///./data/db/birdweather.db` |
+| `CONFIG_PASSWORD` | Initial admin password (used until custom password is set) | Required |
+| `JWT_SECRET` | JWT token signing secret (32+ chars recommended) | Required |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | JWT token expiry time | `1440` (24 hours) |
+| `CORS_ORIGINS` | Allowed CORS origins (JSON array) | `["http://localhost:3001"]` |
 | `AUTO_UPDATE_ENABLED` | Enable auto-updates | `true` |
 | `AUTO_UPDATE_INTERVAL` | Update interval (seconds) | `3600` |
 | `LOG_LEVEL` | Logging level | `INFO` |
+
+### Authentication
+
+The Configuration page is password-protected. On first access:
+
+1. Enter the `CONFIG_PASSWORD` set in environment variables
+2. A JWT token is issued and stored in browser localStorage
+3. Optionally change to a custom password (stored as bcrypt hash in database)
+
+**Rate Limiting:**
+- Login attempts: 5 per minute
+- Password changes: 3 per minute
+
+**Reset Password via CLI:**
+```bash
+docker exec <container-name> python reset_password.py --reset-to-default
+```
 
 ### Persistent Data
 
@@ -218,36 +253,37 @@ All data is stored in the `/data` volume:
 
 Interactive API documentation is available at:
 
-- Swagger UI: `http://localhost:8080/api/docs`
-- ReDoc: `http://localhost:8080/api/redoc`
+- Swagger UI: `http://localhost:8001/api/v1/docs`
+- ReDoc: `http://localhost:8001/api/v1/redoc`
 
 ### Key API Endpoints
 
-- **Authentication:** `POST /api/v1/auth/login`
+- **Authentication:** `POST /api/v1/auth/login`, `PUT /api/v1/auth/password`
 - **Detections:** `GET /api/v1/detections/daily-counts`
 - **Species:** `GET /api/v1/species/`
-- **Stations:** `GET /api/v1/stations/`
-- **Visualizations:** `GET /api/v1/visualizations/*`
-- **Export:** `GET /api/v1/export/detections/csv`
+- **Stations:** `GET /api/v1/stations/`, `POST /api/v1/stations/{id}/sync`
+- **Settings:** `GET /api/v1/settings/`, `POST /api/v1/settings/ebird-taxonomy`
+- **Analytics:** `GET /api/v1/analytics/weather-correlation`
+- **Health:** `GET /api/v1/health`
 
 ## Visualizations
 
-### Tab 1: Daily Detections
+### Daily Detections
 - New species this week gallery
 - Daily detection trends by station
 - Summary statistics
 
-### Tab 2: Species Analysis
+### Species Analysis
 - Species diversity trends (7-day MA)
 - Cumulative discovery curve
 
-### Tab 3: Species Details
+### Species Details
 - 24-hour rose plot (circular activity pattern)
 - 48-hour KDE plot (midnight continuity)
 - Hourly and monthly patterns
 - Detection timeline by station
 
-### Tab 4: Species List
+### Species List
 - Bird family analysis
 - Monthly detection champions
 - Detection vs. confidence scatter plot
@@ -257,10 +293,16 @@ Interactive API documentation is available at:
 - Top 50 hourly patterns
 - Weekly trends bubble chart
 
-### Tab 5: Station Comparison
+### Station Comparison
 - Comprehensive station statistics
 - UpSet plot (species overlap)
 - Per-station breakdowns
+
+### Advanced Analytics
+- Detection patterns by temperature
+- Detection patterns by wind speed
+- Weather correlation analysis
+- Seasonal activity patterns
 
 ## Development
 
@@ -323,26 +365,33 @@ Or manually via the Configuration UI:
 
 ## Deployment
 
-### Multiple Instances
+### Data Volumes
 
-Run separate instances for different geographic areas:
+Each instance uses a bind-mounted data volume for persistent storage:
 
+```yaml
+volumes:
+  birdweather-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /path/to/your/data
+```
+
+Create the data directory before starting:
 ```bash
-# Pittsburgh area
-docker run -d --name bw-pgh -p 8081:8080 -v ./data-pgh:/data birdweatherviz3
-
-# New York area
-docker run -d --name bw-nyc -p 8082:8080 -v ./data-nyc:/data birdweatherviz3
+mkdir -p /home/youruser/birdweatherviz3-data/data
 ```
 
 ### Backup
 
 ```bash
 # Backup database
-docker exec birdweatherviz3 sqlite3 /data/db/birdweather.db ".backup '/data/backup.db'"
+docker exec birdweatherviz3-backend-1 sqlite3 /app/data/db/birdweather.db ".backup '/app/data/backup.db'"
 
-# Copy backup out of container
-docker cp birdweatherviz3:/data/backup.db ./backup-$(date +%Y%m%d).db
+# Copy backup from data volume
+cp /path/to/data/backup.db ./backup-$(date +%Y%m%d).db
 ```
 
 ## Troubleshooting
@@ -350,26 +399,28 @@ docker cp birdweatherviz3:/data/backup.db ./backup-$(date +%Y%m%d).db
 ### Container won't start
 ```bash
 # Check logs
-docker logs birdweatherviz3
+docker logs birdweatherviz3-backend-1
+docker logs birdweatherviz3-frontend-1
 
 # Check health
-docker inspect --format='{{.State.Health.Status}}' birdweatherviz3
+docker compose ps
 ```
 
-### Database locked
+### Authentication issues
 ```bash
-# Stop container
-docker stop birdweatherviz3
+# Reset password to environment variable default
+docker exec birdweatherviz3-backend-1 python reset_password.py --reset-to-default
+```
 
-# Check for stale locks
-docker run --rm -v $(pwd)/data:/data birdweatherviz3 sqlite3 /data/db/birdweather.db ".databases"
-
-# Restart
-docker start birdweatherviz3
+### CORS errors on public instance
+Ensure `CORS_ORIGINS` includes your public domain:
+```yaml
+environment:
+  - CORS_ORIGINS=["https://your-domain.com"]
 ```
 
 ### Auto-updates not working
-1. Check logs: `/data/logs/scheduler.log`
+1. Check backend logs: `docker logs birdweatherviz3-backend-1`
 2. Verify station API tokens in Configuration
 3. Check `AUTO_UPDATE_ENABLED` environment variable
 

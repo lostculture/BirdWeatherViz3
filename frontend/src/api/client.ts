@@ -38,9 +38,10 @@ class APIClient {
       (response) => response,
       (error: AxiosError) => {
         if (error.response?.status === 401) {
-          // Handle unauthorized - redirect to login
+          // Clear token on 401 - let components handle auth state
           localStorage.removeItem('auth_token')
-          window.location.href = '/login'
+          localStorage.removeItem('auth_token_expiry')
+          // Don't redirect - let components show password modal
         }
         return Promise.reject(error)
       }

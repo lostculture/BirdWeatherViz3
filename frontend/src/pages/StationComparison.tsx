@@ -8,7 +8,7 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { stationsApi } from '../api'
-import { BarChart } from '../components/charts'
+import { LineChart } from '../components/charts'
 import type { StationStats } from '../types/api'
 import type { Data } from 'plotly.js'
 
@@ -222,28 +222,225 @@ const StationComparison: React.FC = () => {
     return { intersections, uniqueByStation, sharedByAll, stationNames }
   }, [speciesByStation])
 
-  // Prepare UpSet bar chart data
-  const prepareUpsetChart = (): Data[] => {
-    if (upsetData.intersections.length === 0) return []
+  // Prepare classic UpSet plot data with dot matrix
+  const prepareUpsetChart = (): { data: Data[]; layout: Partial<import('plotly.js').Layout> } => {
+    if (upsetData.intersections.length === 0 || !upsetData.stationNames) {
+      return { data: [], layout: {} }
+    }
 
-    // Take top 15 intersections for visibility
-    const topIntersections = upsetData.intersections.slice(0, 15)
+    const stationNames = upsetData.stationNames
+    const numStations = stationNames.length
+    // Take top intersections - more for fewer stations
+    const maxIntersections = Math.min(30, upsetData.intersections.length)
+    const topIntersections = upsetData.intersections.slice(0, maxIntersections)
+    const numIntersections = topIntersections.length
 
-    return [
-      {
-        x: topIntersections.map((i) => i.label),
-        y: topIntersections.map((i) => i.count),
-        type: 'bar' as const,
-        marker: {
-          color: topIntersections.map((i) => {
-            if (i.stations.length === upsetData.stationNames?.length) return COLORS.brilliant
-            if (i.stations.length === 1) return COLORS.cerulean
-            return COLORS.brown
-          }),
-        },
-        hovertemplate: '%{x}<br>%{y} species<extra></extra>',
+    // Calculate layout dimensions
+    const barHeight = 0.60  // Portion for intersection bars
+    const matrixHeight = 0.40  // Portion for dot matrix
+    const setBarWidth = 0.28  // Portion for set size bars (increased for labels)
+
+    const traces: Data[] = []
+
+    // 1. Intersection size bars (top portion)
+    traces.push({
+      x: topIntersections.map((_, i) => i),
+      y: topIntersections.map((i) => i.count),
+      type: 'bar',
+      marker: {
+        color: topIntersections.map((i) => {
+          if (i.stations.length === numStations) return COLORS.brilliant
+          if (i.stations.length === 1) return COLORS.cerulean
+          return COLORS.brown
+        }),
       },
-    ]
+      text: topIntersections.map((i) => i.count.toString()),
+      textposition: 'outside',
+      textfont: { size: 10 },
+      hovertemplate: '%{customdata}<br>%{y} species<extra></extra>',
+      customdata: topIntersections.map((i) => i.label),
+      xaxis: 'x',
+      yaxis: 'y',
+      showlegend: false,
+    })
+
+    // 2. Dot matrix - inactive dots (gray background)
+    const inactiveX: number[] = []
+    const inactiveY: number[] = []
+    for (let col = 0; col < numIntersections; col++) {
+      for (let row = 0; row < numStations; row++) {
+        inactiveX.push(col)
+        inactiveY.push(row)
+      }
+    }
+    traces.push({
+      x: inactiveX,
+      y: inactiveY,
+      mode: 'markers',
+      type: 'scatter',
+      marker: {
+        size: 12,
+        color: '#E5E7EB',  // Light gray
+        symbol: 'circle',
+      },
+      hoverinfo: 'skip',
+      xaxis: 'x2',
+      yaxis: 'y2',
+      showlegend: false,
+    })
+
+    // 3. Dot matrix - active dots and connecting lines
+    for (let col = 0; col < numIntersections; col++) {
+      const intersection = topIntersections[col]
+      const activeRows = intersection.stations
+        .map((s) => stationNames.indexOf(s))
+        .filter((i) => i >= 0)
+        .sort((a, b) => a - b)
+
+      if (activeRows.length > 0) {
+        // Active dots
+        traces.push({
+          x: activeRows.map(() => col),
+          y: activeRows,
+          mode: 'markers',
+          type: 'scatter',
+          marker: {
+            size: 14,
+            color: intersection.stations.length === numStations ? COLORS.brilliant :
+                   intersection.stations.length === 1 ? COLORS.cerulean : COLORS.brown,
+            symbol: 'circle',
+          },
+          hovertemplate: `${intersection.label}<br>${intersection.count} species<extra></extra>`,
+          xaxis: 'x2',
+          yaxis: 'y2',
+          showlegend: false,
+        })
+
+        // Connecting line for multi-station intersections
+        if (activeRows.length > 1) {
+          traces.push({
+            x: [col, col],
+            y: [Math.min(...activeRows), Math.max(...activeRows)],
+            mode: 'lines',
+            type: 'scatter',
+            line: {
+              color: intersection.stations.length === numStations ? COLORS.brilliant : COLORS.brown,
+              width: 3,
+            },
+            hoverinfo: 'skip',
+            xaxis: 'x2',
+            yaxis: 'y2',
+            showlegend: false,
+          })
+        }
+      }
+    }
+
+    // 4. Set size bars (horizontal bars on left)
+    const stationCounts = stationNames.map((name) => speciesByStation[name]?.length || 0)
+    traces.push({
+      x: stationCounts,
+      y: stationNames.map((_, i) => i),
+      type: 'bar',
+      orientation: 'h',
+      marker: { color: COLORS.deep },
+      text: stationCounts.map((c) => c.toString()),
+      textposition: 'outside',
+      textfont: { size: 10 },
+      hovertemplate: '%{y}<br>%{x} species<extra></extra>',
+      xaxis: 'x3',
+      yaxis: 'y3',
+      showlegend: false,
+    })
+
+    // Calculate dynamic height based on number of stations
+    const chartHeight = Math.max(500, 300 + numStations * 40)
+
+    // Calculate max intersection count and extend range for bar labels
+    const maxCount = Math.max(...topIntersections.map((i) => i.count))
+    const tickInterval = maxCount > 50 ? 10 : maxCount > 20 ? 5 : maxCount > 10 ? 2 : 1
+    const yAxisMax = Math.ceil(maxCount / tickInterval) * tickInterval + tickInterval  // One tick above max
+
+    // Create annotations for left-aligned station names (positioned in left margin)
+    const stationAnnotations: Partial<import('plotly.js').Annotations>[] = stationNames.map((name, i) => ({
+      x: -0.17,  // Position in left margin (negative = left of plot area)
+      y: i,
+      xref: 'paper' as const,
+      yref: 'y3' as const,
+      text: name,
+      showarrow: false,
+      xanchor: 'left',
+      font: { size: 11 },
+    }))
+
+    const layout: Partial<import('plotly.js').Layout> = {
+      grid: {
+        rows: 2,
+        columns: 2,
+        pattern: 'independent' as const,
+        roworder: 'top to bottom' as const,
+      },
+      annotations: stationAnnotations,
+      // Intersection bars (top right)
+      xaxis: {
+        domain: [setBarWidth + 0.02, 1],
+        anchor: 'y',
+        showticklabels: false,
+        showgrid: false,
+        zeroline: false,
+      },
+      yaxis: {
+        domain: [1 - barHeight, 1],
+        anchor: 'x',
+        title: { text: 'Intersection Size', standoff: 10 },
+        side: 'left',
+        range: [0, yAxisMax],  // Extend range to show label above highest bar
+        dtick: tickInterval,
+      },
+      // Dot matrix (bottom right)
+      xaxis2: {
+        domain: [setBarWidth + 0.02, 1],
+        anchor: 'y2',
+        showticklabels: false,
+        showgrid: false,
+        zeroline: false,
+        range: [-0.5, numIntersections - 0.5],
+      },
+      yaxis2: {
+        domain: [0.08, matrixHeight - 0.02],
+        anchor: 'x2',
+        tickmode: 'array',
+        tickvals: stationNames.map((_, i) => i),
+        ticktext: stationNames.map(() => ''),  // Hide labels (shown on y3)
+        showgrid: false,
+        zeroline: false,
+        autorange: 'reversed',
+      },
+      // Set size bars (bottom left)
+      xaxis3: {
+        domain: [0, setBarWidth - 0.02],
+        anchor: 'y3',
+        autorange: 'reversed',
+        title: { text: 'Set Size', standoff: 15 },
+        side: 'bottom',
+        tickfont: { size: 9 },
+      },
+      yaxis3: {
+        domain: [0.08, matrixHeight - 0.02],
+        anchor: 'x3',
+        tickmode: 'array',
+        tickvals: stationNames.map((_, i) => i),
+        ticktext: stationNames.map(() => ''),  // Hide labels (using annotations instead)
+        showgrid: false,
+        zeroline: false,
+        autorange: 'reversed',
+      },
+      height: chartHeight,
+      margin: { l: 220, r: 20, t: 50, b: 50 },  // Room for station names
+      showlegend: false,
+    }
+
+    return { data: traces, layout }
   }
 
   if (loading) {
@@ -358,19 +555,15 @@ const StationComparison: React.FC = () => {
               <span className="inline-block ml-2 px-2 py-0.5 text-xs rounded" style={{ backgroundColor: COLORS.cerulean, color: 'white' }}>Unique to One</span>
               <span className="inline-block ml-2 px-2 py-0.5 text-xs rounded" style={{ backgroundColor: COLORS.brown, color: 'white' }}>Some Stations</span>
             </p>
-            <BarChart
-              data={prepareUpsetChart()}
-              layout={{
-                xaxis: {
-                  tickangle: -45,
-                  automargin: true,
-                  tickfont: { size: 10 },
-                },
-                yaxis: { title: { text: 'Number of Species' } },
-                height: 500,
-                margin: { l: 60, r: 20, t: 20, b: 220 },
-              }}
-            />
+            {(() => {
+              const upsetChart = prepareUpsetChart()
+              return (
+                <LineChart
+                  data={upsetChart.data}
+                  layout={upsetChart.layout}
+                />
+              )
+            })()}
           </div>
 
           {/* Species Lists - Expandable */}

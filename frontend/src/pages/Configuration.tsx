@@ -6,7 +6,9 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react'
-import { stationsApi, settingsApi, weatherApi, BIRD_INFO_SOURCES, BIRD_SOURCE_REGIONS, DEFAULT_BIRD_SOURCES } from '../api'
+import { stationsApi, settingsApi, weatherApi, authApi, BIRD_INFO_SOURCES, BIRD_SOURCE_REGIONS, DEFAULT_BIRD_SOURCES } from '../api'
+import PasswordModal from '../components/auth/PasswordModal'
+import ChangePasswordModal from '../components/auth/ChangePasswordModal'
 import type { StationResponse, StationCreate, StationUpdate } from '../types/api'
 import type { TaxonomyStats } from '../api/settings'
 import type { WeatherStats, WeatherStationSetting } from '../api/weather'
@@ -19,6 +21,11 @@ interface StationFormData {
 }
 
 const Configuration: React.FC = () => {
+  // Auth state
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false)
+
   // Station state
   const [stations, setStations] = useState<StationResponse[]>([])
   const [loading, setLoading] = useState(true)
@@ -60,12 +67,41 @@ const Configuration: React.FC = () => {
   const taxonomyFileRef = useRef<HTMLInputElement>(null)
   const detectionsFileRef = useRef<HTMLInputElement>(null)
 
+  // Check authentication on mount
   useEffect(() => {
+    if (authApi.isAuthenticated()) {
+      setIsAuthenticated(true)
+      loadStations()
+      loadSettings()
+      loadWeatherData()
+      loadDisplaySettings()
+    } else {
+      setIsAuthenticated(false)
+      setShowPasswordModal(true)
+      setLoading(false)
+    }
+  }, [])
+
+  const handleAuthSuccess = () => {
+    setIsAuthenticated(true)
+    setShowPasswordModal(false)
+    setLoading(true)
     loadStations()
     loadSettings()
     loadWeatherData()
     loadDisplaySettings()
-  }, [])
+  }
+
+  const handleLogout = () => {
+    authApi.logout()
+    setIsAuthenticated(false)
+    setShowPasswordModal(true)
+  }
+
+  const handlePasswordChangeSuccess = () => {
+    setShowChangePasswordModal(false)
+    alert('Password changed successfully! Please use the new password next time you log in.')
+  }
 
   const loadDisplaySettings = async () => {
     try {
@@ -406,7 +442,13 @@ const Configuration: React.FC = () => {
     }
   }
 
-  if (loading) {
+  // Show password modal if not authenticated
+  if (showPasswordModal) {
+    return <PasswordModal onSuccess={handleAuthSuccess} />
+  }
+
+  // Show loading while checking auth or loading data
+  if (isAuthenticated === null || loading) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="text-lg">Loading configuration...</div>
@@ -435,8 +477,28 @@ const Configuration: React.FC = () => {
           >
             Add Station
           </button>
+          <button
+            onClick={() => setShowChangePasswordModal(true)}
+            className="bg-amber-100 hover:bg-amber-200 text-amber-800 px-4 py-2 rounded-lg font-medium"
+          >
+            Change Password
+          </button>
+          <button
+            onClick={handleLogout}
+            className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium"
+          >
+            Logout
+          </button>
         </div>
       </div>
+
+      {/* Change Password Modal */}
+      {showChangePasswordModal && (
+        <ChangePasswordModal
+          onClose={() => setShowChangePasswordModal(false)}
+          onSuccess={handlePasswordChangeSuccess}
+        />
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{error}</div>

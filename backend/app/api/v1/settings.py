@@ -12,7 +12,7 @@ from pydantic import BaseModel
 import csv
 import io
 
-from app.api.deps import get_db_dependency
+from app.api.deps import get_db_dependency, get_current_user
 from app.db.models.setting import Setting
 from app.db.models.species import Species
 from app.db.models.station import Station
@@ -95,7 +95,8 @@ async def get_setting(key: str, db: Session = Depends(get_db_dependency)):
 async def update_setting(
     key: str,
     setting_data: SettingUpdate,
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Update or create a setting.
@@ -129,7 +130,11 @@ async def update_setting(
 
 
 @router.delete("/{key}")
-async def delete_setting(key: str, db: Session = Depends(get_db_dependency)):
+async def delete_setting(
+    key: str,
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
+):
     """
     Delete a setting.
     """
@@ -146,7 +151,8 @@ async def delete_setting(key: str, db: Session = Depends(get_db_dependency)):
 @router.post("/ebird-taxonomy", response_model=TaxonomyUploadResponse)
 async def upload_ebird_taxonomy(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Upload eBird taxonomy CSV to populate species codes.
@@ -344,7 +350,8 @@ async def get_taxonomy_stats(db: Session = Depends(get_db_dependency)):
 @router.post("/detections/upload", response_model=DetectionUploadResponse)
 async def upload_detections_csv(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Upload detection data from CSV file.

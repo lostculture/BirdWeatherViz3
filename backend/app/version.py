@@ -11,7 +11,7 @@ __license__ = "Proprietary"
 
 # Version history
 VERSION_HISTORY = {
-    "1.3.0": "iNat taxon ID lookup/caching, Family Explorer fix, Station Comparison links, avg detections per day",
+    "1.3.0": "Advanced Analytics page, JWT authentication, password protection, rate limiting, public deployment via Cloudflare Tunnel, iNat taxon ID lookup/caching",
     "1.2.0": "Streaming sync with progress updates, species stats fix, multi-station support improvements",
     "1.1.1": "eBird URL fix, UI improvements, filter bar enhancements",
     "1.1.0": "Weather integration, Docker deployment, performance optimizations",

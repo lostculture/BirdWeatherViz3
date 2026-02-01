@@ -34,12 +34,12 @@ const SpeciesCard: React.FC<{
   return (
     <div className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-white">
       {/* Bird Image */}
-      <div className="h-32 bg-gray-100 relative">
+      <div className="h-40 bg-gray-100 relative flex items-center justify-center">
         {!imageError ? (
           <img
             src={imageUrl}
             alt={species.common_name}
-            className="w-full h-full object-cover"
+            className="max-w-full max-h-full object-contain"
             onError={() => setImageError(true)}
           />
         ) : (
@@ -322,7 +322,7 @@ const DailyDetections: React.FC = () => {
               title: { text: 'Daily Detections by Station' },
               xaxis: { title: { text: 'Date' } },
               yaxis: { title: { text: 'Number of Detections' } },
-              height: 400,
+              height: 800,
             }}
           />
         ) : (
