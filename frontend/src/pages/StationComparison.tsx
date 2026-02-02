@@ -9,8 +9,15 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { stationsApi } from '../api'
 import { LineChart } from '../components/charts'
-import type { StationStats } from '../types/api'
+import { StationMap } from '../components/maps'
+import type { StationStats, StationResponse } from '../types/api'
 import type { Data } from 'plotly.js'
+
+// Extended station stats with coordinates
+interface StationStatsWithCoords extends StationStats {
+  latitude?: number
+  longitude?: number
+}
 
 // Indigo Bunting color palette
 const COLORS = {
@@ -97,7 +104,7 @@ interface UpSetIntersection {
 }
 
 const StationComparison: React.FC = () => {
-  const [stations, setStations] = useState<StationStats[]>([])
+  const [stations, setStations] = useState<StationStatsWithCoords[]>([])
   const [speciesByStation, setSpeciesByStation] = useState<Record<string, SpeciesInfo[]>>({})
   const [speciesIdMap, setSpeciesIdMap] = useState<Map<string, number>>(new Map())
   const [loading, setLoading] = useState(true)
@@ -111,13 +118,26 @@ const StationComparison: React.FC = () => {
     try {
       setLoading(true)
       setError(null)
-      const [statsData, speciesData, speciesList] = await Promise.all([
+      const [statsData, speciesData, speciesList, stationList] = await Promise.all([
         stationsApi.getComparison(),
         stationsApi.getSpeciesByStation(),
         // Get species list to map scientific names to IDs
         fetch('/api/v1/species/').then(r => r.json()),
+        // Get station details for coordinates
+        stationsApi.getAll(),
       ])
-      setStations(statsData)
+
+      // Merge station stats with coordinates from station list
+      const stationCoordsMap = new Map<number, StationResponse>()
+      stationList.forEach((s: StationResponse) => stationCoordsMap.set(s.station_id, s))
+
+      const stationsWithCoords: StationStatsWithCoords[] = statsData.map((stat) => ({
+        ...stat,
+        latitude: stationCoordsMap.get(stat.station_id)?.latitude,
+        longitude: stationCoordsMap.get(stat.station_id)?.longitude,
+      }))
+
+      setStations(stationsWithCoords)
       setSpeciesByStation(speciesData)
 
       // Build map of scientific_name -> id for linking to details page
@@ -470,6 +490,14 @@ const StationComparison: React.FC = () => {
         </p>
       </div>
 
+      {/* Station Map */}
+      {stations.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4">Station Locations</h2>
+          <StationMap stations={stations} />
+        </div>
+      )}
+
       {/* Station Comparison Table */}
       {stations.length > 0 && (
         <div className="bg-white rounded-lg shadow p-6">
@@ -508,7 +536,14 @@ const StationComparison: React.FC = () => {
                 {stations.map((station) => (
                   <tr key={station.station_id}>
                     <td className="px-6 py-4 whitespace-nowrap font-medium">
-                      {station.station_name}
+                      <a
+                        href={`https://app.birdweather.com/stations/${station.station_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-indigo-600 hover:underline"
+                      >
+                        {station.station_name}
+                      </a>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {station.total_detections.toLocaleString()}

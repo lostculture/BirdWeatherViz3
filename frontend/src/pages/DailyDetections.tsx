@@ -2,16 +2,26 @@
  * Daily Detections Page
  * Displays daily detection trends and new species gallery.
  *
- * Version: 1.1.0
+ * Version: 1.2.0
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { detectionsApi, speciesApi, weatherApi, settingsApi, generateBirdLinks, DEFAULT_BIRD_SOURCES } from '../api'
 import { LineChart } from '../components/charts'
 import { useFilters } from '../context/FilterContext'
 import type { DailyDetectionCount, NewSpeciesThisWeek, DatabaseStats } from '../types/api'
 import type { WeatherRecord } from '../api/weather'
-import type { Data } from 'plotly.js'
+import type { Data, Layout } from 'plotly.js'
+import Plot from 'react-plotly.js'
+
+// Threshold for switching to small multiples
+const SPARKLINE_THRESHOLD = 3
+
+// Indigo color palette for charts
+const CHART_COLORS = [
+  '#4169E1', '#1E3A8A', '#5B9BD5', '#8B7355', '#0F172A',
+  '#6366F1', '#818CF8', '#4338CA', '#A5B4FC', '#7C3AED',
+]
 
 // Helper to get bird image URL from our API
 const getBirdImageUrl = (scientificName: string, commonName?: string): string => {
@@ -197,17 +207,22 @@ const DailyDetections: React.FC = () => {
     }
   }
 
-  // Prepare chart data
-  const prepareChartData = (): Data[] => {
-    // Group by station
-    const stationGroups: Record<string, DailyDetectionCount[]> = {}
+  // Group data by station
+  const stationGroups = useMemo(() => {
+    const groups: Record<string, DailyDetectionCount[]> = {}
     dailyData.forEach((item) => {
-      if (!stationGroups[item.station_name]) {
-        stationGroups[item.station_name] = []
+      if (!groups[item.station_name]) {
+        groups[item.station_name] = []
       }
-      stationGroups[item.station_name].push(item)
+      groups[item.station_name].push(item)
     })
+    return groups
+  }, [dailyData])
 
+  const stationCount = Object.keys(stationGroups).length
+
+  // Prepare chart data for combined view
+  const prepareChartData = (): Data[] => {
     // Create traces for each station
     return Object.entries(stationGroups).map(([stationName, data]) => ({
       x: data.map((d) => d.detection_date),
@@ -217,6 +232,93 @@ const DailyDetections: React.FC = () => {
       mode: 'lines+markers' as const,
     }))
   }
+
+  // Small multiples chart data for >3 stations
+  const smallMultiplesData = useMemo((): { data: Data[]; layout: Partial<Layout> } | null => {
+    if (stationCount <= SPARKLINE_THRESHOLD) return null
+
+    const stationNames = Object.keys(stationGroups)
+    const cols = Math.min(3, stationNames.length)
+    const rows = Math.ceil(stationNames.length / cols)
+
+    const traces: Data[] = []
+    const annotations: Partial<import('plotly.js').Annotations>[] = []
+
+    stationNames.forEach((stationName, idx) => {
+      const data = stationGroups[stationName]
+      const row = Math.floor(idx / cols)
+      const col = idx % cols
+
+      // Create trace for this station
+      traces.push({
+        x: data.map((d) => d.detection_date),
+        y: data.map((d) => d.detection_count),
+        type: 'scatter',
+        mode: 'lines',
+        name: stationName,
+        line: { color: CHART_COLORS[idx % CHART_COLORS.length], width: 1.5 },
+        fill: 'tozeroy',
+        fillcolor: `${CHART_COLORS[idx % CHART_COLORS.length]}20`,
+        xaxis: idx === 0 ? 'x' : `x${idx + 1}`,
+        yaxis: idx === 0 ? 'y' : `y${idx + 1}`,
+        showlegend: false,
+        hovertemplate: `${stationName}<br>%{x}<br>%{y} detections<extra></extra>`,
+      })
+
+      // Add station name annotation
+      const xDomain = [col / cols + 0.02, (col + 1) / cols - 0.02]
+      const yDomain = [1 - (row + 1) / rows + 0.02, 1 - row / rows - 0.06]
+
+      annotations.push({
+        text: stationName,
+        x: xDomain[0],
+        y: yDomain[1] + 0.03,
+        xref: 'paper',
+        yref: 'paper',
+        xanchor: 'left',
+        showarrow: false,
+        font: { size: 11, weight: 700 },
+      })
+    })
+
+    // Build layout with subplots
+    const layout: Partial<Layout> = {
+      grid: {
+        rows,
+        columns: cols,
+        pattern: 'independent' as const,
+        roworder: 'top to bottom' as const,
+        xgap: 0.08,
+        ygap: 0.15,
+      },
+      height: rows * 180 + 50,
+      margin: { l: 50, r: 20, t: 30, b: 50 },
+      showlegend: false,
+      annotations,
+    }
+
+    // Configure each subplot axis
+    stationNames.forEach((_, idx) => {
+      const xKey = idx === 0 ? 'xaxis' : `xaxis${idx + 1}`
+      const yKey = idx === 0 ? 'yaxis' : `yaxis${idx + 1}`
+
+      // @ts-expect-error dynamic axis keys
+      layout[xKey] = {
+        tickfont: { size: 9 },
+        tickangle: -45,
+        showgrid: false,
+      }
+      // @ts-expect-error dynamic axis keys
+      layout[yKey] = {
+        tickfont: { size: 9 },
+        showgrid: true,
+        gridcolor: '#f0f0f0',
+        rangemode: 'tozero',
+      }
+    })
+
+    return { data: traces, layout }
+  }, [stationGroups, stationCount])
 
   if (loading) {
     return (
@@ -315,16 +417,30 @@ const DailyDetections: React.FC = () => {
       {/* Daily Detections Chart */}
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-semibold mb-4">Daily Detection Trends</h2>
+        {stationCount > SPARKLINE_THRESHOLD && (
+          <p className="text-sm text-muted-foreground mb-4">
+            Using small multiples view for {stationCount} stations (threshold: {SPARKLINE_THRESHOLD})
+          </p>
+        )}
         {dailyData.length > 0 ? (
-          <LineChart
-            data={prepareChartData()}
-            layout={{
-              title: { text: 'Daily Detections by Station' },
-              xaxis: { title: { text: 'Date' } },
-              yaxis: { title: { text: 'Number of Detections' } },
-              height: 800,
-            }}
-          />
+          stationCount > SPARKLINE_THRESHOLD && smallMultiplesData ? (
+            <Plot
+              data={smallMultiplesData.data}
+              layout={smallMultiplesData.layout}
+              config={{ responsive: true, displayModeBar: false }}
+              style={{ width: '100%' }}
+            />
+          ) : (
+            <LineChart
+              data={prepareChartData()}
+              layout={{
+                title: { text: 'Daily Detections by Station' },
+                xaxis: { title: { text: 'Date' } },
+                yaxis: { title: { text: 'Number of Detections' } },
+                height: 500,
+              }}
+            />
+          )
         ) : (
           <div className="text-center text-muted-foreground py-8">
             No detection data available

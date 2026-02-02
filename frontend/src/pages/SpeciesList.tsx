@@ -2,14 +2,15 @@
  * Species List Page
  * Family analysis with horizontal bar charts and species details.
  *
- * Version: 1.4.0
+ * Version: 1.5.0
  */
 
-import React, { useEffect, useState } from 'react'
-import { speciesApi } from '../api'
+import React, { useEffect, useState, useMemo } from 'react'
+import { speciesApi, analyticsApi } from '../api'
 import { BarChart } from '../components/charts'
 import { useFilters } from '../context/FilterContext'
 import type { FamilyStats, SpeciesResponse } from '../types/api'
+import type { MonthlyChampion } from '../api/analytics'
 import type { Data } from 'plotly.js'
 
 import { Link } from 'react-router-dom'
@@ -71,9 +72,12 @@ const SpeciesList: React.FC = () => {
   const [familyData, setFamilyData] = useState<FamilyStats[]>([])
   const [selectedFamily, setSelectedFamily] = useState<string | null>(null)
   const [familySpecies, setFamilySpecies] = useState<SpeciesResponse[]>([])
+  const [allSpecies, setAllSpecies] = useState<SpeciesResponse[]>([])
+  const [monthlyChampions, setMonthlyChampions] = useState<MonthlyChampion[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingSpecies, setLoadingSpecies] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Reload when filters change
   useEffect(() => {
@@ -98,8 +102,14 @@ const SpeciesList: React.FC = () => {
         end_date: endDate || undefined,
         station_ids: getStationIdsParam(),
       }
-      const data = await speciesApi.getFamilyStats(filterParams)
+      const [data, speciesList, champions] = await Promise.all([
+        speciesApi.getFamilyStats(filterParams),
+        speciesApi.getList({ station_ids: filterParams.station_ids }),
+        analyticsApi.getMonthlyChampions({ station_ids: filterParams.station_ids, year: 0 }),
+      ])
       setFamilyData(data.sort((a, b) => b.total_detections - a.total_detections))
+      setAllSpecies(speciesList.sort((a, b) => (b.total_detections || 0) - (a.total_detections || 0)))
+      setMonthlyChampions(champions)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -167,6 +177,39 @@ const SpeciesList: React.FC = () => {
   }
 
   const selectedFamilyStats = familyData.find((f) => f.family === selectedFamily)
+
+  // Filtered species based on search
+  const filteredSpecies = useMemo(() => {
+    if (!searchQuery.trim()) return allSpecies
+    const query = searchQuery.toLowerCase()
+    return allSpecies.filter(
+      (sp) =>
+        sp.common_name.toLowerCase().includes(query) ||
+        sp.scientific_name.toLowerCase().includes(query)
+    )
+  }, [allSpecies, searchQuery])
+
+  // CSV export function
+  const exportCSV = () => {
+    const headers = ['Common Name', 'Scientific Name', 'Family', 'Total Detections', 'First Seen', 'Last Seen']
+    const rows = allSpecies.map((sp) => [
+      `"${sp.common_name}"`,
+      `"${sp.scientific_name}"`,
+      `"${sp.family || ''}"`,
+      sp.total_detections || 0,
+      sp.first_seen || '',
+      sp.last_seen || '',
+    ])
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `species_catalog_${new Date().toISOString().split('T')[0]}.csv`
+    link.click()
+  }
+
+  // Summary stats
+  const uniqueFamilies = new Set(allSpecies.map((sp) => sp.family).filter(Boolean)).size
 
   if (loading) {
     return (
@@ -257,6 +300,151 @@ const SpeciesList: React.FC = () => {
           ))}
         </select>
       </div>
+
+      {/* Complete Species Catalog */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-semibold">Complete Species Catalog</h2>
+            <p className="text-sm text-muted-foreground">
+              {allSpecies.length} species from {uniqueFamilies} families
+            </p>
+          </div>
+          <button
+            onClick={exportCSV}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
+          >
+            Export CSV
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="mb-4">
+          <input
+            type="text"
+            placeholder="Search by common or scientific name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full md:w-96 p-3 border rounded-lg text-sm"
+          />
+        </div>
+
+        {/* Species Table */}
+        <div className="overflow-x-auto max-h-96 overflow-y-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Common Name
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Scientific Name
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Family
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Detections
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  First Seen
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Last Seen
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Details
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filteredSpecies.slice(0, 100).map((species) => (
+                <tr key={species.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {species.common_name}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 italic">
+                    {species.scientific_name}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                    {species.family || '-'}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700 text-right">
+                    {(species.total_detections || 0).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                    {species.first_seen ? new Date(species.first_seen).toLocaleDateString() : '-'}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                    {species.last_seen ? new Date(species.last_seen).toLocaleDateString() : '-'}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap text-sm text-center">
+                    <Link
+                      to={`/species-details?id=${species.id}`}
+                      className="text-indigo-600 hover:underline"
+                    >
+                      View
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filteredSpecies.length > 100 && (
+            <p className="text-sm text-muted-foreground mt-2 px-4">
+              Showing first 100 of {filteredSpecies.length} species. Use search to filter.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Monthly Champions */}
+      {monthlyChampions.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-2">Monthly Detection Champions</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            The most detected species each month over the past 12 months
+          </p>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Month
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Top Species
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Detections
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    % of Month
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {monthlyChampions.map((champion, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {champion.month_name}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                      {champion.common_name}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">
+                      {champion.detection_count.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 text-right">
+                      {champion.percentage_of_month.toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Selected Family Details */}
       {selectedFamily && selectedFamilyStats && (

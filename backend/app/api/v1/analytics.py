@@ -135,7 +135,7 @@ async def get_temporal_distribution(
     months: int = Query(6, ge=1, le=12, description="Number of months to analyze"),
     station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
     min_confidence: float = Query(0.7, ge=0.0, le=1.0, description="Minimum confidence threshold"),
-    limit: int = Query(20, ge=5, le=50, description="Number of top species if not specified"),
+    limit: int = Query(20, ge=5, le=200, description="Number of top species if not specified"),
     db: Session = Depends(get_db_dependency)
 ):
     """

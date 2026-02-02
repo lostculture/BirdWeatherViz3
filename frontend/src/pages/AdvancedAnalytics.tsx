@@ -16,7 +16,6 @@ import type {
   DawnChorusPoint,
   WeatherImpact,
   CoOccurrenceCell,
-  SpeciesSeasonality,
   MonthlyChampion,
 } from '../api/analytics'
 import type { StationResponse } from '../types/api'
@@ -47,7 +46,6 @@ const AdvancedAnalytics: React.FC = () => {
   const [weatherData, setWeatherData] = useState<WeatherImpact[]>([])
   const [precipData, setPrecipData] = useState<WeatherImpact[]>([])
   const [coOccurrenceData, setCoOccurrenceData] = useState<CoOccurrenceCell[]>([])
-  const [seasonalityData, setSeasonalityData] = useState<SpeciesSeasonality[]>([])
   const [monthlyChampionsData, setMonthlyChampionsData] = useState<MonthlyChampion[]>([])
   const [stations, setStations] = useState<StationResponse[]>([])
 
@@ -84,7 +82,7 @@ const AdvancedAnalytics: React.FC = () => {
         ? selectedStations.join(',')
         : undefined
 
-      const [bubble, phenology, scatter, confHour, temporal, dawnChorus, weather, precip, coOccurrence, seasonality, champions] = await Promise.all([
+      const [bubble, phenology, scatter, confHour, temporal, dawnChorus, weather, precip, coOccurrence, champions] = await Promise.all([
         analyticsApi.getSpeciesHourBubble({
           limit: bubbleLimit >= 9999 ? 500 : bubbleLimit,  // Cap at 500 for "All"
           months: 3,
@@ -106,7 +104,7 @@ const AdvancedAnalytics: React.FC = () => {
         analyticsApi.getTemporalDistribution({
           station_ids: stationIds,
           months: 6,
-          limit: 15,
+          limit: 200,  // All species for density plot
         }),
         analyticsApi.getDawnChorus({
           station_ids: stationIds,
@@ -127,10 +125,6 @@ const AdvancedAnalytics: React.FC = () => {
           months: 6,
           limit: 15,
         }),
-        analyticsApi.getSpeciesSeasonality({
-          station_ids: stationIds,
-          limit: 30,
-        }),
         analyticsApi.getMonthlyChampions({
           station_ids: stationIds,
           year: phenologyYear,
@@ -146,7 +140,6 @@ const AdvancedAnalytics: React.FC = () => {
       setWeatherData(weather)
       setPrecipData(precip)
       setCoOccurrenceData(coOccurrence)
-      setSeasonalityData(seasonality)
       setMonthlyChampionsData(champions)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load analytics data')
@@ -214,13 +207,21 @@ const AdvancedAnalytics: React.FC = () => {
       return { data: [], layout: {} }
     }
 
-    // Get unique species and weeks
+    // Get unique species
     const speciesNames = [...new Set(phenologyData.map(d => d.common_name))]
-    const weeks = [...new Set(phenologyData.map(d => d.week_number))].sort((a, b) => a - b)
 
-    // Build matrix
+    // Use all 52 weeks instead of just weeks with data
+    const allWeeks = Array.from({ length: 52 }, (_, i) => i + 1)
+
+    // Calculate current week number
+    const now = new Date()
+    const startOfYear = new Date(now.getFullYear(), 0, 1)
+    const dayOfYear = Math.floor((now.getTime() - startOfYear.getTime()) / 86400000) + 1
+    const currentWeek = Math.ceil((dayOfYear + startOfYear.getDay()) / 7)
+
+    // Build matrix with all 52 weeks (fill missing with 0)
     const matrix: number[][] = speciesNames.map(species => {
-      return weeks.map(week => {
+      return allWeeks.map(week => {
         const cell = phenologyData.find(d => d.common_name === species && d.week_number === week)
         return cell?.detection_count || 0
       })
@@ -233,11 +234,14 @@ const AdvancedAnalytics: React.FC = () => {
       row: matrix[idx],
     })).sort((a, b) => b.total - a.total)
 
+    // Find the x-axis index for the current week
+    const currentWeekIndex = currentWeek - 1  // 0-indexed
+
     return {
       data: [{
         type: 'heatmap',
         z: speciesWithTotals.map(s => s.row),
-        x: weeks.map(w => `W${w}`),
+        x: allWeeks.map(w => `W${w}`),
         y: speciesWithTotals.map(s => s.name),
         colorscale: HEATMAP_COLORSCALE,
         hovertemplate: '%{y}<br>Week %{x}<br>Detections: %{z}<extra></extra>',
@@ -256,6 +260,23 @@ const AdvancedAnalytics: React.FC = () => {
         },
         height: Math.max(400, speciesWithTotals.length * 18 + 120),
         margin: { l: 150, r: 80, t: 50, b: 80 },
+        // Current week indicator line
+        shapes: [{
+          type: 'line',
+          x0: currentWeekIndex,
+          x1: currentWeekIndex,
+          y0: -0.5,
+          y1: speciesWithTotals.length - 0.5,
+          line: { color: '#FF6B00', width: 3 },
+        }],
+        annotations: [{
+          x: currentWeekIndex,
+          y: -0.08,
+          yref: 'paper',
+          text: 'Now',
+          showarrow: false,
+          font: { color: '#FF6B00', size: 11, weight: 700 },
+        }],
       },
     }
   }, [phenologyData, phenologyYear])
@@ -596,44 +617,143 @@ const AdvancedAnalytics: React.FC = () => {
     }
   }, [coOccurrenceData])
 
-  // Prepare seasonality timeline data
+  // Gaussian KDE computation
+  const computeKDE = (data: number[], bandwidth: number, gridPoints: number[]): number[] => {
+    // Gaussian kernel: K(u) = (1/sqrt(2*pi)) * exp(-0.5 * u^2)
+    return gridPoints.map((x) => {
+      let sum = 0
+      for (const xi of data) {
+        const u = (x - xi) / bandwidth
+        sum += Math.exp(-0.5 * u * u)
+      }
+      return sum / (data.length * bandwidth * Math.sqrt(2 * Math.PI))
+    })
+  }
+
+  // Prepare mirrored probability density plot for seasonality
   const seasonalityChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
-    if (seasonalityData.length === 0) {
+    if (temporalData.length === 0) {
       return { data: [], layout: {} }
     }
 
-    // Sort by first seen date
-    const sorted = [...seasonalityData].sort((a, b) =>
-      new Date(a.first_seen).getTime() - new Date(b.first_seen).getTime()
-    )
+    // Group temporal data by species
+    const speciesGroups = new Map<string, TemporalDistribution[]>()
+    temporalData.forEach((d) => {
+      if (!speciesGroups.has(d.common_name)) {
+        speciesGroups.set(d.common_name, [])
+      }
+      speciesGroups.get(d.common_name)!.push(d)
+    })
+
+    // Sort species by total detections (most detected at top)
+    const speciesOrdered = Array.from(speciesGroups.entries())
+      .map(([name, data]) => ({
+        name,
+        data,
+        total: data.reduce((sum, d) => sum + d.detection_count, 0),
+      }))
+      .sort((a, b) => b.total - a.total)
+
+    if (speciesOrdered.length === 0) {
+      return { data: [], layout: {} }
+    }
+
+    // Determine date range
+    const allDates = temporalData.map((d) => new Date(d.date).getTime())
+    const minDate = Math.min(...allDates)
+    const maxDate = Math.max(...allDates)
+    const dateRange = maxDate - minDate
+    const bandwidth = dateRange / 30 // Bandwidth: ~1 month
+
+    // Create grid of dates for KDE
+    const gridSize = 100
+    const gridDates: number[] = []
+    for (let i = 0; i < gridSize; i++) {
+      gridDates.push(minDate + (i / (gridSize - 1)) * dateRange)
+    }
+    const gridDatesStr = gridDates.map((d) => new Date(d).toISOString().split('T')[0])
+
+    // Color palette for species
+    const colors = [
+      '#4338CA', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899',
+      '#14B8A6', '#F97316', '#6366F1', '#84CC16', '#06B6D4', '#E11D48',
+      '#7C3AED', '#059669', '#D97706',
+    ]
+
+    const traces: Data[] = []
+    const verticalSpacing = 1 // Spacing between species
+
+    speciesOrdered.forEach((species, idx) => {
+      // Expand dates by detection count (each detection contributes to the density)
+      const expandedDates: number[] = []
+      species.data.forEach((d) => {
+        const dateMs = new Date(d.date).getTime()
+        for (let i = 0; i < Math.min(d.detection_count, 100); i++) {
+          expandedDates.push(dateMs)
+        }
+      })
+
+      if (expandedDates.length === 0) return
+
+      // Compute KDE
+      const density = computeKDE(expandedDates, bandwidth, gridDates)
+      const maxDensity = Math.max(...density)
+
+      // Normalize density to fit within spacing (max height = 0.4 of spacing)
+      const normalizedDensity = density.map((d) => (d / maxDensity) * 0.4)
+      const yBaseline = idx * verticalSpacing
+      const color = colors[idx % colors.length]
+
+      // Lower trace (mirrored - negative) - must come first as base for fill
+      traces.push({
+        type: 'scatter',
+        mode: 'lines',
+        x: gridDatesStr,
+        y: normalizedDensity.map((d) => yBaseline - d),
+        line: { color, width: 1 },
+        name: species.name,
+        showlegend: false,
+        hovertemplate: `${species.name}<br>%{x}<extra></extra>`,
+      })
+
+      // Upper trace (positive) - fills down to previous trace (lower)
+      traces.push({
+        type: 'scatter',
+        mode: 'lines',
+        x: gridDatesStr,
+        y: normalizedDensity.map((d) => yBaseline + d),
+        line: { color, width: 1 },
+        fill: 'tonexty',
+        fillcolor: `${color}40`,
+        showlegend: false,
+        hoverinfo: 'skip',
+      })
+    })
 
     return {
-      data: [{
-        type: 'scatter',
-        mode: 'lines+markers',
-        x: sorted.flatMap(d => [d.first_seen, d.last_seen, null]),
-        y: sorted.flatMap(d => [d.common_name, d.common_name, null]),
-        line: { color: '#6366F1', width: 6 },
-        marker: { size: 10, color: '#4338CA' },
-        connectgaps: false,
-        hoverinfo: 'skip',
-      }],
+      data: traces,
       layout: {
-        title: { text: 'Species First/Last Sighting Timeline', font: { size: 16 } },
+        title: { text: 'Species Detection Density (Mirrored)', font: { size: 16 } },
         xaxis: {
           title: { text: 'Date' },
           type: 'date',
         },
         yaxis: {
-          title: { text: '' },
+          tickmode: 'array',
+          tickvals: speciesOrdered.map((_, idx) => idx * verticalSpacing),
+          ticktext: speciesOrdered.map((s) => s.name),
           tickfont: { size: 10 },
+          showgrid: false,
+          zeroline: false,
+          autorange: 'reversed',  // Most detected at top
         },
-        height: Math.max(400, sorted.length * 20 + 100),
+        height: Math.max(400, speciesOrdered.length * 60 + 100),
         margin: { l: 150, r: 20, t: 50, b: 50 },
         showlegend: false,
+        hovermode: 'closest',
       },
     }
-  }, [seasonalityData])
+  }, [temporalData])
 
   const handleStationToggle = (stationId: number) => {
     setSelectedStations(prev =>
@@ -941,18 +1061,20 @@ const AdvancedAnalytics: React.FC = () => {
         <h2 className="text-xl font-semibold">Seasonality & Champions</h2>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          {/* Species Seasonality Timeline */}
+          {/* Species Detection Density */}
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-sm text-muted-foreground mb-2">
-              First and last detection dates for each species. Shows presence periods across the data.
+              Mirrored probability density plot showing detection patterns over time. Species ordered by total detections (highest at top). Wider areas indicate more frequent detections.
             </p>
-            {seasonalityData.length > 0 ? (
-              <Plot
-                data={seasonalityChartData.data}
-                layout={seasonalityChartData.layout}
-                config={{ responsive: true, displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
+            {temporalData.length > 0 ? (
+              <div className="overflow-y-auto max-h-[600px]">
+                <Plot
+                  data={seasonalityChartData.data}
+                  layout={seasonalityChartData.layout}
+                  config={{ responsive: true, displayModeBar: false }}
+                  style={{ width: '100%' }}
+                />
+              </div>
             ) : (
               <div className="h-64 flex items-center justify-center text-muted-foreground">
                 No data available
