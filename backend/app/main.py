@@ -16,6 +16,7 @@ from app.config import settings
 from app.version import __version__, get_version_info
 from app.db.session import create_tables
 from app.core.rate_limit import limiter
+from app.scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 
 # Configure logging
 logging.basicConfig(
@@ -67,6 +68,14 @@ async def startup_event():
         logger.error(f"Error creating database tables: {e}")
         raise
 
+    # Start background scheduler for automatic station updates
+    try:
+        start_scheduler()
+        logger.info("Background scheduler initialized")
+    except Exception as e:
+        logger.error(f"Error starting scheduler: {e}")
+        # Don't raise - app can run without scheduler
+
     logger.info("Application startup complete")
 
 
@@ -77,6 +86,7 @@ async def shutdown_event():
     Performs cleanup tasks.
     """
     logger.info(f"Shutting down {settings.APP_NAME}")
+    stop_scheduler()
 
 
 @app.get("/")
@@ -118,6 +128,7 @@ async def health_check():
             "version": __version__,
             "database": db_status,
             "auto_update_enabled": settings.AUTO_UPDATE_ENABLED,
+            "scheduler": get_scheduler_status(),
         }
     )
 

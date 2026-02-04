@@ -254,44 +254,55 @@ class AnalyticsRepository:
         Get confidence distribution by hour for heatmap.
 
         Returns counts binned by hour and confidence range.
+        Optimized: Uses CASE statement to bin all data in a single query.
         """
         cutoff_date = date.today() - timedelta(days=months * 30)
 
-        # Define confidence bins
-        bins = [
-            (0.5, 0.6, "0.50-0.60"),
-            (0.6, 0.7, "0.60-0.70"),
-            (0.7, 0.8, "0.70-0.80"),
-            (0.8, 0.9, "0.80-0.90"),
-            (0.9, 1.0, "0.90-1.00"),
-        ]
+        # Use CASE to bin confidence in a single query
+        confidence_bin = case(
+            (and_(Detection.confidence >= 0.5, Detection.confidence < 0.6), '0.50-0.60'),
+            (and_(Detection.confidence >= 0.6, Detection.confidence < 0.7), '0.60-0.70'),
+            (and_(Detection.confidence >= 0.7, Detection.confidence < 0.8), '0.70-0.80'),
+            (and_(Detection.confidence >= 0.8, Detection.confidence < 0.9), '0.80-0.90'),
+            (Detection.confidence >= 0.9, '0.90-1.00'),
+            else_=None
+        ).label('confidence_bin')
+
+        query = (
+            self.db.query(
+                extract('hour', Detection.timestamp).label('hour'),
+                confidence_bin,
+                func.count(Detection.id).label('detection_count')
+            )
+            .filter(Detection.detection_date >= cutoff_date)
+            .filter(Detection.confidence >= 0.5)
+        )
+
+        if station_ids:
+            query = query.filter(Detection.station_id.in_(station_ids))
+
+        hourly_data = (
+            query
+            .group_by(extract('hour', Detection.timestamp), confidence_bin)
+            .all()
+        )
+
+        # Map bin labels to min/max values
+        bin_ranges = {
+            '0.50-0.60': (0.5, 0.6),
+            '0.60-0.70': (0.6, 0.7),
+            '0.70-0.80': (0.7, 0.8),
+            '0.80-0.90': (0.8, 0.9),
+            '0.90-1.00': (0.9, 1.0),
+        }
 
         results = []
-
-        for conf_min, conf_max, bin_label in bins:
-            query = (
-                self.db.query(
-                    extract('hour', Detection.timestamp).label('hour'),
-                    func.count(Detection.id).label('detection_count')
-                )
-                .filter(Detection.detection_date >= cutoff_date)
-                .filter(Detection.confidence >= conf_min)
-                .filter(Detection.confidence < conf_max if conf_max < 1.0 else Detection.confidence <= conf_max)
-            )
-
-            if station_ids:
-                query = query.filter(Detection.station_id.in_(station_ids))
-
-            hourly_data = (
-                query
-                .group_by(extract('hour', Detection.timestamp))
-                .all()
-            )
-
-            for row in hourly_data:
+        for row in hourly_data:
+            if row.confidence_bin and row.confidence_bin in bin_ranges:
+                conf_min, conf_max = bin_ranges[row.confidence_bin]
                 results.append({
                     'hour': int(row.hour),
-                    'confidence_bin': bin_label,
+                    'confidence_bin': row.confidence_bin,
                     'confidence_min': conf_min,
                     'confidence_max': conf_max,
                     'detection_count': row.detection_count
@@ -485,43 +496,65 @@ class AnalyticsRepository:
         results = []
 
         if analysis_type == 'temperature':
-            # Group by temperature bins (including cold weather)
-            temp_bins = [
-                (None, 0, "< 0°F"),
-                (0, 20, "0-20°F"),
-                (20, 32, "20-32°F"),
-                (32, 50, "32-50°F"),
-                (50, 60, "50-60°F"),
-                (60, 70, "60-70°F"),
-                (70, 80, "70-80°F"),
-                (80, 90, "80-90°F"),
-                (90, None, "> 90°F"),
-            ]
+            # Optimized: Use CASE statement to bin all temperature data in single query
+            temp_bin = case(
+                (Weather.temp_avg < 0, '< 0°F'),
+                (and_(Weather.temp_avg >= 0, Weather.temp_avg < 20), '0-20°F'),
+                (and_(Weather.temp_avg >= 20, Weather.temp_avg < 32), '20-32°F'),
+                (and_(Weather.temp_avg >= 32, Weather.temp_avg < 50), '32-50°F'),
+                (and_(Weather.temp_avg >= 50, Weather.temp_avg < 60), '50-60°F'),
+                (and_(Weather.temp_avg >= 60, Weather.temp_avg < 70), '60-70°F'),
+                (and_(Weather.temp_avg >= 70, Weather.temp_avg < 80), '70-80°F'),
+                (and_(Weather.temp_avg >= 80, Weather.temp_avg < 90), '80-90°F'),
+                (Weather.temp_avg >= 90, '> 90°F'),
+                else_=None
+            ).label('temp_bin')
 
-            for low, high, label in temp_bins:
-                bin_query = query
-                if low is not None:
-                    bin_query = bin_query.filter(Weather.temp_avg >= low)
-                if high is not None:
-                    bin_query = bin_query.filter(Weather.temp_avg < high)
-
-                daily_data = (
-                    bin_query
-                    .group_by(Weather.weather_date)
-                    .all()
+            daily_query = (
+                self.db.query(
+                    temp_bin,
+                    Weather.weather_date,
+                    func.count(Detection.id).label('detection_count')
                 )
+                .join(Detection, and_(
+                    Weather.station_id == Detection.station_id,
+                    Weather.weather_date == Detection.detection_date
+                ))
+                .filter(Detection.detection_date >= cutoff_date)
+                .filter(Detection.confidence >= min_confidence)
+                .filter(Weather.temp_avg.isnot(None))
+            )
 
-                if daily_data:
-                    total_detections = sum(d.detection_count for d in daily_data)
-                    observation_count = len(daily_data)
-                    avg_detections = total_detections / observation_count
+            if station_ids:
+                daily_query = daily_query.filter(Detection.station_id.in_(station_ids))
 
+            daily_data = (
+                daily_query
+                .group_by(temp_bin, Weather.weather_date)
+                .all()
+            )
+
+            # Aggregate by temperature bin
+            bin_stats = {}
+            for row in daily_data:
+                if row.temp_bin is None:
+                    continue
+                if row.temp_bin not in bin_stats:
+                    bin_stats[row.temp_bin] = {'total': 0, 'days': 0}
+                bin_stats[row.temp_bin]['total'] += row.detection_count
+                bin_stats[row.temp_bin]['days'] += 1
+
+            # Output in consistent order
+            bin_order = ['< 0°F', '0-20°F', '20-32°F', '32-50°F', '50-60°F', '60-70°F', '70-80°F', '80-90°F', '> 90°F']
+            for label in bin_order:
+                if label in bin_stats:
+                    stats = bin_stats[label]
                     results.append({
                         'temperature_bin': label,
                         'condition': None,
-                        'avg_detections': round(avg_detections, 1),
-                        'total_detections': total_detections,
-                        'observation_count': observation_count
+                        'avg_detections': round(stats['total'] / stats['days'], 1),
+                        'total_detections': stats['total'],
+                        'observation_count': stats['days']
                     })
 
         elif analysis_type == 'condition':
@@ -714,22 +747,27 @@ class AnalyticsRepository:
         if len(species_ids) < 2:
             return []
 
-        # Get detection dates for each species
-        species_dates = {}
-        for species_id in species_ids:
-            dates_query = (
-                self.db.query(Detection.detection_date)
-                .filter(Detection.species_id == species_id)
-                .filter(Detection.detection_date >= cutoff_date)
-                .filter(Detection.confidence >= min_confidence)
+        # Get all detection dates for all species in a single query (optimized)
+        dates_query = (
+            self.db.query(
+                Detection.species_id,
+                Detection.detection_date
             )
+            .filter(Detection.species_id.in_(species_ids))
+            .filter(Detection.detection_date >= cutoff_date)
+            .filter(Detection.confidence >= min_confidence)
+            .distinct()
+        )
 
-            if station_ids:
-                dates_query = dates_query.filter(Detection.station_id.in_(station_ids))
+        if station_ids:
+            dates_query = dates_query.filter(Detection.station_id.in_(station_ids))
 
-            species_dates[species_id] = set(
-                d.detection_date for d in dates_query.distinct().all()
-            )
+        all_dates = dates_query.all()
+
+        # Group dates by species
+        species_dates = {sid: set() for sid in species_ids}
+        for row in all_dates:
+            species_dates[row.species_id].add(row.detection_date)
 
         # Calculate co-occurrence matrix
         results = []
@@ -806,32 +844,39 @@ class AnalyticsRepository:
         species_ids = [r.id for r in base_results]
         species_data = {r.id: r for r in base_results}
 
-        # Get peak month for each species
-        peak_months = {}
-        for species_id in species_ids:
-            month_query = (
-                self.db.query(
-                    func.strftime('%m', Detection.detection_date).label('month'),
-                    func.count(Detection.id).label('count')
-                )
-                .filter(Detection.species_id == species_id)
-                .filter(Detection.confidence >= min_confidence)
+        # Get peak month for all species in a single query (optimized)
+        # Using subquery to find max count per species, then join to get month
+        monthly_query = (
+            self.db.query(
+                Detection.species_id,
+                func.strftime('%m', Detection.detection_date).label('month'),
+                func.count(Detection.id).label('count')
             )
+            .filter(Detection.species_id.in_(species_ids))
+            .filter(Detection.confidence >= min_confidence)
+        )
 
-            if station_ids:
-                month_query = month_query.filter(Detection.station_id.in_(station_ids))
+        if station_ids:
+            monthly_query = monthly_query.filter(Detection.station_id.in_(station_ids))
 
-            monthly_counts = (
-                month_query
-                .group_by(func.strftime('%m', Detection.detection_date))
-                .order_by(func.count(Detection.id).desc())
-                .first()
-            )
+        monthly_counts = (
+            monthly_query
+            .group_by(Detection.species_id, func.strftime('%m', Detection.detection_date))
+            .all()
+        )
 
-            if monthly_counts:
-                peak_months[species_id] = int(monthly_counts.month)
-            else:
-                peak_months[species_id] = 1
+        # Find peak month for each species from the results
+        species_month_counts = {}
+        for row in monthly_counts:
+            sid = row.species_id
+            if sid not in species_month_counts or row.count > species_month_counts[sid][1]:
+                species_month_counts[sid] = (int(row.month), row.count)
+
+        peak_months = {sid: data[0] for sid, data in species_month_counts.items()}
+        # Default to 1 for any species not found
+        for sid in species_ids:
+            if sid not in peak_months:
+                peak_months[sid] = 1
 
         month_names = [
             '', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -865,92 +910,82 @@ class AnalyticsRepository:
         Get the top species for each month over the rolling 12 months.
 
         Returns the most detected species per month with their counts.
-        Now uses rolling 12 months from current date instead of calendar year.
+        Optimized: Uses single query to get all monthly data, then processes in Python.
         """
         month_names = [
             '', 'January', 'February', 'March', 'April', 'May', 'June',
             'July', 'August', 'September', 'October', 'November', 'December'
         ]
 
-        results = []
         today = date.today()
 
-        # Generate list of last 12 months (including current month)
-        months_to_process = []
-        for i in range(11, -1, -1):
-            # Calculate the month going back i months
-            target_date = today - timedelta(days=i * 30)  # Approximate
-            # Adjust to first of that month
-            month_start = date(target_date.year, target_date.month, 1)
-            # Calculate end of month
-            if month_start.month == 12:
-                month_end = date(month_start.year, 12, 31)
-            else:
-                month_end = date(month_start.year, month_start.month + 1, 1) - timedelta(days=1)
-            months_to_process.append((month_start, month_end))
+        # Calculate date range for rolling 12 months
+        start_date = date(today.year - 1, today.month, 1)
 
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_months = []
-        for m in months_to_process:
-            key = (m[0].year, m[0].month)
-            if key not in seen:
-                seen.add(key)
-                unique_months.append(m)
+        # Single query to get all species counts by year-month (optimized)
+        query = (
+            self.db.query(
+                func.strftime('%Y', Detection.detection_date).label('year'),
+                func.strftime('%m', Detection.detection_date).label('month'),
+                Species.id.label('species_id'),
+                Species.common_name,
+                func.count(Detection.id).label('detection_count')
+            )
+            .join(Species, Detection.species_id == Species.id)
+            .filter(Detection.detection_date >= start_date)
+            .filter(Detection.detection_date <= today)
+            .filter(Detection.confidence >= min_confidence)
+        )
 
-        for month_start, month_end in unique_months:
-            # Skip future months
-            if month_start > today:
+        if station_ids:
+            query = query.filter(Detection.station_id.in_(station_ids))
+
+        monthly_data = (
+            query
+            .group_by(
+                func.strftime('%Y', Detection.detection_date),
+                func.strftime('%m', Detection.detection_date),
+                Species.id,
+                Species.common_name
+            )
+            .all()
+        )
+
+        # Process results to find champion and total for each month
+        month_stats = {}  # (year, month) -> {'species': {...}, 'total': int}
+
+        for row in monthly_data:
+            key = (int(row.year), int(row.month))
+            if key not in month_stats:
+                month_stats[key] = {'species': {}, 'total': 0}
+
+            month_stats[key]['species'][row.species_id] = {
+                'common_name': row.common_name,
+                'count': row.detection_count
+            }
+            month_stats[key]['total'] += row.detection_count
+
+        # Build results sorted by date
+        results = []
+        for (year, month), stats in sorted(month_stats.items()):
+            if stats['total'] == 0:
                 continue
 
-            # Get top species for this month
-            query = (
-                self.db.query(
-                    Species.id,
-                    Species.common_name,
-                    func.count(Detection.id).label('detection_count')
-                )
-                .join(Detection, Detection.species_id == Species.id)
-                .filter(Detection.detection_date >= month_start)
-                .filter(Detection.detection_date <= month_end)
-                .filter(Detection.confidence >= min_confidence)
-            )
+            # Find top species for this month
+            top_species_id = max(stats['species'].keys(), key=lambda sid: stats['species'][sid]['count'])
+            top_species = stats['species'][top_species_id]
 
-            if station_ids:
-                query = query.filter(Detection.station_id.in_(station_ids))
+            percentage = (top_species['count'] / stats['total']) * 100
+            month_label = f"{month_names[month]} {year}"
 
-            top_species = (
-                query
-                .group_by(Species.id, Species.common_name)
-                .order_by(func.count(Detection.id).desc())
-                .first()
-            )
-
-            # Get total for month to calculate percentage
-            total_query = (
-                self.db.query(func.count(Detection.id))
-                .filter(Detection.detection_date >= month_start)
-                .filter(Detection.detection_date <= month_end)
-                .filter(Detection.confidence >= min_confidence)
-            )
-
-            if station_ids:
-                total_query = total_query.filter(Detection.station_id.in_(station_ids))
-
-            month_total = total_query.scalar() or 0
-
-            if top_species and month_total > 0:
-                percentage = (top_species.detection_count / month_total) * 100
-                # Include year in month name for clarity
-                month_label = f"{month_names[month_start.month]} {month_start.year}"
-                results.append({
-                    'month': month_start.month,
-                    'month_name': month_label,
-                    'year': month_start.year,
-                    'species_id': top_species.id,
-                    'common_name': top_species.common_name,
-                    'detection_count': top_species.detection_count,
-                    'percentage_of_month': round(percentage, 1)
-                })
+            results.append({
+                'month': month,
+                'month_name': month_label,
+                'year': year,
+                'species_id': top_species_id,
+                'common_name': top_species['common_name'],
+                'detection_count': top_species['count'],
+                'percentage_of_month': round(percentage, 1)
+            })
 
         return results

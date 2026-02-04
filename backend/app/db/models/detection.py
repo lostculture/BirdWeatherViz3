@@ -70,6 +70,10 @@ class Detection(Base):
         Index('ix_detection_station_date', 'station_id', 'detection_date'),
         Index('ix_detection_species_date', 'species_id', 'detection_date'),
         Index('ix_detection_date_hour', 'detection_date', 'detection_hour'),
+        # Analytics optimizations
+        Index('ix_detection_date_confidence', 'detection_date', 'confidence'),
+        Index('ix_detection_species_confidence', 'species_id', 'confidence'),
+        Index('ix_detection_station_species_date', 'station_id', 'species_id', 'detection_date'),
     )
 
     def __repr__(self):
