@@ -265,14 +265,14 @@ const DailyDetections: React.FC = () => {
         hovertemplate: `${stationName}<br>%{x}<br>%{y} detections<extra></extra>`,
       })
 
-      // Add station name annotation
+      // Add station name annotation - positioned above each subplot
       const xDomain = [col / cols + 0.02, (col + 1) / cols - 0.02]
-      const yDomain = [1 - (row + 1) / rows + 0.02, 1 - row / rows - 0.06]
+      const yDomain = [1 - (row + 1) / rows + 0.05, 1 - row / rows - 0.12]
 
       annotations.push({
         text: stationName,
         x: xDomain[0],
-        y: yDomain[1] + 0.03,
+        y: yDomain[1] + 0.08,
         xref: 'paper',
         yref: 'paper',
         xanchor: 'left',
@@ -289,10 +289,10 @@ const DailyDetections: React.FC = () => {
         pattern: 'independent' as const,
         roworder: 'top to bottom' as const,
         xgap: 0.08,
-        ygap: 0.15,
+        ygap: 0.22,
       },
-      height: rows * 180 + 50,
-      margin: { l: 50, r: 20, t: 30, b: 50 },
+      height: rows * 220 + 60,
+      margin: { l: 50, r: 20, t: 40, b: 50 },
       showlegend: false,
       annotations,
     }
