@@ -265,17 +265,17 @@ const DailyDetections: React.FC = () => {
         hovertemplate: `${stationName}<br>%{x}<br>%{y} detections<extra></extra>`,
       })
 
-      // Add station name annotation - positioned above each subplot
-      const xDomain = [col / cols + 0.02, (col + 1) / cols - 0.02]
-      const yDomain = [1 - (row + 1) / rows + 0.05, 1 - row / rows - 0.12]
+      // Add station name annotation - positioned at top of each subplot
+      const xStart = col / cols + 0.02
 
       annotations.push({
         text: stationName,
-        x: xDomain[0],
-        y: yDomain[1] + 0.08,
+        x: xStart,
+        y: 1 - row / rows - 0.02,
         xref: 'paper',
         yref: 'paper',
         xanchor: 'left',
+        yanchor: 'top',
         showarrow: false,
         font: { size: 11, weight: 700 },
       })

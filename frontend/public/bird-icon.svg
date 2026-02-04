@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="#1E3A8A"/>
+
+  <!-- Bird body - stylized songbird -->
+  <ellipse cx="26" cy="34" rx="12" ry="10" fill="#4169E1"/>
+
+  <!-- Bird head -->
+  <circle cx="20" cy="26" r="8" fill="#4169E1"/>
+
+  <!-- Bird eye -->
+  <circle cx="17" cy="24" r="2" fill="#0F172A"/>
+  <circle cx="16.5" cy="23.5" r="0.7" fill="white"/>
+
+  <!-- Bird beak - open, singing -->
+  <path d="M12 26 L8 24 L12 28 Z" fill="#8B7355"/>
+  <path d="M12 26 L8 28 L12 28 Z" fill="#6B5344"/>
+
+  <!-- Bird wing -->
+  <ellipse cx="30" cy="34" rx="8" ry="6" fill="#1E3A8A"/>
+
+  <!-- Bird tail feathers -->
+  <path d="M38 32 Q46 28 44 36 Q42 32 38 36 Z" fill="#4169E1"/>
+
+  <!-- Microphone stand -->
+  <rect x="44" y="28" width="3" height="20" rx="1" fill="#5B9BD5"/>
+
+  <!-- Microphone head -->
+  <rect x="42" y="20" width="7" height="10" rx="3" fill="#0F172A"/>
+  <rect x="43" y="21" width="5" height="8" rx="2" fill="#5B9BD5"/>
+  <!-- Mic grille lines -->
+  <line x1="43.5" y1="23" x2="47.5" y2="23" stroke="#1E3A8A" stroke-width="0.8"/>
+  <line x1="43.5" y1="25" x2="47.5" y2="25" stroke="#1E3A8A" stroke-width="0.8"/>
+  <line x1="43.5" y1="27" x2="47.5" y2="27" stroke="#1E3A8A" stroke-width="0.8"/>
+
+  <!-- Musical note floating from bird -->
+  <g fill="#5B9BD5">
+    <!-- Note 1 -->
+    <ellipse cx="24" cy="14" rx="3" ry="2.5" transform="rotate(-20 24 14)"/>
+    <rect x="26" y="6" width="2" height="9" rx="0.5"/>
+    <path d="M27 6 Q32 4 30 10" stroke="#5B9BD5" stroke-width="2" fill="none"/>
+  </g>
+
+  <!-- Sound waves from beak -->
+  <path d="M6 24 Q3 26 6 28" stroke="#5B9BD5" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M3 22 Q-1 26 3 30" stroke="#5B9BD5" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.6"/>
+</svg>
