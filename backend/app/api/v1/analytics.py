@@ -194,7 +194,7 @@ async def get_weather_impact(
     station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
     months: int = Query(6, ge=1, le=12, description="Number of months to analyze"),
     min_confidence: float = Query(0.7, ge=0.0, le=1.0, description="Minimum confidence threshold"),
-    analysis_type: str = Query("temperature", description="Analysis type: temperature, condition, or precipitation"),
+    analysis_type: str = Query("temperature", description="Analysis type: temperature, condition, or precipitation", pattern="^(temperature|condition|precipitation)$"),
     db: Session = Depends(get_db_dependency)
 ):
     """

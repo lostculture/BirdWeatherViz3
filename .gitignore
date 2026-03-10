@@ -50,6 +50,7 @@ venv.bak/
 # ========================================
 .env
 .env.local
+.env.public
 .env.*.local
 *.db
 *.sqlite
@@ -163,6 +164,17 @@ secrets/
 # Claude Code local settings
 # ========================================
 .claude/
+
+# ========================================
+# Beads issue tracking (local)
+# ========================================
+.beads/
+
+# ========================================
+# Local development files
+# ========================================
+AGENTS.md
+formating.txt
 
 # ========================================
 # Debug/Test Scripts

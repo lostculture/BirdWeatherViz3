@@ -61,21 +61,30 @@ class DetectionUploadResponse(BaseModel):
 
 
 @router.get("/", response_model=List[SettingResponse])
-async def get_all_settings(db: Session = Depends(get_db_dependency)):
+async def get_all_settings(
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
+):
     """
-    Get all application settings.
+    Get all application settings. Requires authentication.
+    Filters out sensitive keys like password hashes.
     """
+    SENSITIVE_KEYS = {"config_password_hash"}
     settings = db.query(Setting).all()
     return [SettingResponse(
         key=s.key,
         value=s.value,
         data_type=s.data_type,
         description=s.description
-    ) for s in settings]
+    ) for s in settings if s.key not in SENSITIVE_KEYS]
 
 
 @router.get("/{key}", response_model=SettingResponse)
-async def get_setting(key: str, db: Session = Depends(get_db_dependency)):
+async def get_setting(
+    key: str,
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
+):
     """
     Get a specific setting by key.
     """

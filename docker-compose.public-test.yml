@@ -1,12 +1,10 @@
-# Docker Compose for Public Access via Cloudflare Tunnel
+# Docker Compose for Public Instance - LOCAL TESTING
 #
-# This configuration exposes BirdWeatherViz3 to the internet securely
-# using Cloudflare Tunnel. No port forwarding required.
+# This version exposes ports for local testing before adding Cloudflare.
+# Once tested, use docker-compose.public.yml with Cloudflare tunnel.
 #
 # Usage:
-#   1. Copy .env.public.example to .env.public and configure
-#   2. Create a Cloudflare Tunnel and get the token
-#   3. Run: docker compose -f docker-compose.public.yml up -d
+#   docker compose -f docker-compose.public-test.yml --env-file .env.public up -d
 
 services:
   backend:
@@ -14,9 +12,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: birdweatherviz3-backend-public
-    # No external port exposure - only accessible via internal network
-    expose:
-      - "8000"
+    # Expose on different ports than local dev instance
+    ports:
+      - "8002:8000"
     volumes:
       - birdweather-public-data:/app/data
     environment:
@@ -24,7 +22,7 @@ services:
       - CONFIG_PASSWORD=${CONFIG_PASSWORD:?CONFIG_PASSWORD must be set in .env.public}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in .env.public}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
-      - CORS_ORIGINS=${CORS_ORIGINS:?CORS_ORIGINS must be set in .env.public (e.g. ["https://yourdomain.com"])}
+      - CORS_ORIGINS=["http://localhost:3004", "http://127.0.0.1:3004"]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
@@ -39,23 +37,12 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: birdweatherviz3-frontend-public
-    # No external port exposure - only accessible via cloudflared
-    expose:
-      - "80"
+    # Expose on different port than local dev instance
+    ports:
+      - "3004:80"
     depends_on:
       - backend
     restart: unless-stopped
-    networks:
-      - birdweather-public-net
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: birdweatherviz3-cloudflared
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN must be set in .env.public}
-    restart: unless-stopped
-    depends_on:
-      - frontend
-      - backend
     networks:
       - birdweather-public-net
 

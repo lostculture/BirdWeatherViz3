@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     OPENMETEO_ARCHIVE_URL: str = "https://archive-api.open-meteo.com/v1/archive"
 
     # Wikimedia
-    WIKIMEDIA_USER_AGENT: str = "BirdWeatherViz3/1.0 (https://github.com/yourusername/birdweatherviz3)"
+    WIKIMEDIA_USER_AGENT: str = "BirdWeatherViz3/1.0 (https://github.com/lostculture/BirdWeatherViz3)"
     WIKIMEDIA_EMAIL: Optional[str] = None
 
     # Pagination

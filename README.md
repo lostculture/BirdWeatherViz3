@@ -80,10 +80,9 @@ BirdWeatherViz3/
 ├── docker-compose.yml            # Local development
 ├── docker-compose.public.yml     # Public deployment (Cloudflare)
 ├── docker-compose.public-test.yml # Public testing (with ports)
-├── .env.public                   # Public instance secrets
+├── .env.public.example            # Public instance env template
 │
-├── .beads/                       # Beads issue tracking
-└── .claude/                      # Claude Code settings
+└── LICENSE                        # MIT License
 ```
 
 ## Quick Start
@@ -122,6 +121,10 @@ These scripts automatically:
 ### Option 2: Docker Compose (Recommended)
 
 ```bash
+# Set required environment variables
+export CONFIG_PASSWORD="your-secure-password"
+export JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+
 # Start backend and frontend services
 docker compose up -d --build
 
@@ -251,10 +254,12 @@ All data is stored in the `/data` volume:
 
 ## API Documentation
 
-Interactive API documentation is available at:
+Interactive API documentation is available in development mode (`DEBUG=true`):
 
 - Swagger UI: `http://localhost:8001/api/v1/docs`
 - ReDoc: `http://localhost:8001/api/v1/redoc`
+
+API docs are disabled in production for security.
 
 ### Key API Endpoints
 
@@ -367,7 +372,9 @@ Or manually via the Configuration UI:
 
 ### Data Volumes
 
-Each instance uses a bind-mounted data volume for persistent storage:
+Each instance uses a Docker named volume for persistent storage. Data persists across container restarts and rebuilds.
+
+To use a bind mount for easier backup access, override the volume in your own `docker-compose.override.yml`:
 
 ```yaml
 volumes:
@@ -377,11 +384,6 @@ volumes:
       type: none
       o: bind
       device: /path/to/your/data
-```
-
-Create the data directory before starting:
-```bash
-mkdir -p /home/youruser/birdweatherviz3-data/data
 ```
 
 ### Backup
@@ -434,7 +436,7 @@ environment:
 
 ## License
 
-Copyright (c) 2025 BirdWeatherViz3
+MIT License - See [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 

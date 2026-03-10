@@ -1,3 +1,10 @@
+# BirdWeatherViz3 - Local Development
+# For production/public deployment, use docker-compose.public.yml
+#
+# Usage:
+#   1. Copy backend/.env.example to backend/.env and configure
+#   2. Run: docker compose up -d
+
 services:
   backend:
     build:
@@ -6,13 +13,13 @@ services:
     ports:
       - "8001:8000"
     volumes:
-      # Persistent storage for SQLite database
       - birdweather-data:/app/data
     environment:
       - DATABASE_URL=sqlite:///./data/db/birdweather.db
-      - CONFIG_PASSWORD=birdsecure123
-      - JWT_SECRET=birdweather-jwt-secret-change-in-production
-      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
+      - CONFIG_PASSWORD=${CONFIG_PASSWORD:?Set CONFIG_PASSWORD in .env or environment}
+      - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in .env or environment}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      - DEBUG=true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
@@ -32,8 +39,3 @@ services:
 
 volumes:
   birdweather-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /home/richardj/birdweatherviz3-data/data

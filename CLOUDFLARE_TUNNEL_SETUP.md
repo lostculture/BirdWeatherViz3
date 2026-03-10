@@ -18,12 +18,16 @@ The frontend nginx container serves both static files and proxies API requests t
 - A Cloudflare account with a domain configured
 - Access to Cloudflare Zero Trust dashboard
 
-## Step 1: Create Data Directory
+## Step 1: Prepare Data Directory (Optional)
+
+If you want to use a bind mount for persistent data, create a directory:
 
 ```bash
-mkdir -p /home/richardj/birdweatherviz3-public-data/data/db
-mkdir -p /home/richardj/birdweatherviz3-public-data/data/logs
+mkdir -p ./data/db
+mkdir -p ./data/logs
 ```
+
+By default, Docker named volumes are used (no bind mount needed).
 
 ## Step 2: Create a Cloudflare Tunnel
 
@@ -34,10 +38,7 @@ mkdir -p /home/richardj/birdweatherviz3-public-data/data/logs
 5. Name your tunnel (e.g., `birdweatherviz3-tunnel`)
 6. Copy the tunnel token - you'll need this for the Docker configuration
 
-The token looks like:
-```
-eyJhIjoiODgyMDA0NTY2YTY2MDc3M2FhMGMwN2NhNWE1YTZlMjAi...
-```
+The token will be a long base64-encoded string starting with `eyJ...`
 
 ## Step 3: Configure the Tunnel Public Hostname
 
@@ -46,7 +47,7 @@ In the tunnel configuration:
 1. Go to the **Public Hostname** tab
 2. Add a new public hostname:
    - **Subdomain:** your-subdomain (e.g., `birds`)
-   - **Domain:** your-domain.com (e.g., `bionaught.com`)
+   - **Domain:** your-domain.com
    - **Path:** (leave empty)
    - **Service Type:** HTTP
    - **URL:** `birdweatherviz3-frontend-public:80`

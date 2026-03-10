@@ -277,8 +277,13 @@ const StationComparison: React.FC = () => {
       text: topIntersections.map((i) => i.count.toString()),
       textposition: 'outside',
       textfont: { size: 10 },
-      hovertemplate: '%{customdata}<br>%{y} species<extra></extra>',
-      customdata: topIntersections.map((i) => i.label),
+      hovertemplate: '%{customdata}<extra></extra>',
+      customdata: topIntersections.map((i) => {
+        const stationLabel = i.stations.length === 1 ? i.stations[0] : `${i.stations.length} stations`
+        const speciesNames = i.species.slice(0, 20).map(sp => sp.common_name).join('<br>')
+        const more = i.species.length > 20 ? `<br>... and ${i.species.length - 20} more` : ''
+        return `${stationLabel}<br>${speciesNames}${more}`
+      }),
       xaxis: 'x',
       yaxis: 'y',
       showlegend: false,
@@ -330,7 +335,12 @@ const StationComparison: React.FC = () => {
                    intersection.stations.length === 1 ? COLORS.cerulean : COLORS.brown,
             symbol: 'circle',
           },
-          hovertemplate: `${intersection.label}<br>${intersection.count} species<extra></extra>`,
+          hovertemplate: (() => {
+            const stationLabel = intersection.stations.length === 1 ? intersection.stations[0] : `${intersection.stations.length} stations`
+            const speciesNames = intersection.species.slice(0, 20).map(sp => sp.common_name).join('<br>')
+            const more = intersection.species.length > 20 ? `<br>... and ${intersection.species.length - 20} more` : ''
+            return `${stationLabel}<br>${speciesNames}${more}<extra></extra>`
+          })(),
           xaxis: 'x2',
           yaxis: 'y2',
           showlegend: false,

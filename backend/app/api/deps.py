@@ -146,8 +146,9 @@ def verify_config_password(password: str) -> bool:
         except Exception:
             return False
     else:
-        # Fall back to environment variable (plain text comparison)
-        return password == settings.CONFIG_PASSWORD
+        # Fall back to environment variable with constant-time comparison
+        import hmac
+        return hmac.compare_digest(password, settings.CONFIG_PASSWORD)
 
 
 async def get_db_dependency() -> Generator[Session, None, None]:

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
 
-from app.api.deps import get_db_dependency
+from app.api.deps import get_db_dependency, get_current_user
 from app.repositories.species import SpeciesRepository
 from app.schemas.species import (
     SpeciesResponse,
@@ -56,7 +56,8 @@ async def get_species_list(
 
 @router.post("/refresh-stats")
 async def refresh_species_stats(
-    db: Session = Depends(get_db_dependency)
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Refresh cached statistics for all species.

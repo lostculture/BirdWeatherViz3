@@ -30,9 +30,9 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=__version__,
     description="Next-generation bird detection visualization platform",
-    docs_url=f"{settings.API_V1_PREFIX}/docs",
-    redoc_url=f"{settings.API_V1_PREFIX}/redoc",
-    openapi_url=f"{settings.API_V1_PREFIX}/openapi.json"
+    docs_url=f"{settings.API_V1_PREFIX}/docs" if settings.DEBUG else None,
+    redoc_url=f"{settings.API_V1_PREFIX}/redoc" if settings.DEBUG else None,
+    openapi_url=f"{settings.API_V1_PREFIX}/openapi.json" if settings.DEBUG else None
 )
 
 # Configure rate limiting

@@ -32,7 +32,7 @@ const SpeciesCard: React.FC<{ species: SpeciesResponse }> = ({ species }) => {
 
   return (
     <div className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-white">
-      <div className="h-24 bg-gray-100 relative">
+      <div className="aspect-square bg-gray-100 relative">
         {!imageError ? (
           <img
             src={imageUrl}
@@ -301,7 +301,119 @@ const SpeciesList: React.FC = () => {
         </select>
       </div>
 
-      {/* Complete Species Catalog */}
+      {/* Selected Family Details - Right after Family Explorer */}
+      {selectedFamily && selectedFamilyStats && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">{selectedFamily}</h2>
+            <button
+              onClick={() => {
+                setSelectedFamily(null)
+                setFamilySpecies([])
+              }}
+              className="text-gray-500 hover:text-gray-700 text-xl"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Family Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <div className="text-2xl font-bold text-indigo-dark">
+                {selectedFamilyStats.species_count}
+              </div>
+              <div className="text-sm text-muted-foreground">Species</div>
+            </div>
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <div className="text-2xl font-bold text-indigo-dark">
+                {selectedFamilyStats.total_detections.toLocaleString()}
+              </div>
+              <div className="text-sm text-muted-foreground">Total Detections</div>
+            </div>
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <div className="text-2xl font-bold text-indigo-dark">
+                {Math.round(selectedFamilyStats.total_detections / selectedFamilyStats.species_count).toLocaleString()}
+              </div>
+              <div className="text-sm text-muted-foreground">Avg per Species</div>
+            </div>
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <div className="text-2xl font-bold text-indigo-dark">
+                {((selectedFamilyStats.total_detections / familyData.reduce((sum, f) => sum + f.total_detections, 0)) * 100).toFixed(1)}%
+              </div>
+              <div className="text-sm text-muted-foreground">of All Detections</div>
+            </div>
+          </div>
+
+          {/* Species Grid */}
+          <h3 className="text-lg font-semibold mb-4">Species in {selectedFamily}</h3>
+          {loadingSpecies ? (
+            <div className="text-center text-muted-foreground py-8">
+              Loading species...
+            </div>
+          ) : familySpecies.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {familySpecies.map((species) => (
+                <SpeciesCard key={species.id} species={species} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center text-muted-foreground py-8">
+              No species found in this family
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Monthly Champions */}
+      {monthlyChampions.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-2">Monthly Detection Champions</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            The most detected species each month over the past 12 months
+          </p>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Month
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Top Species
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Detections
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    % of Month
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {monthlyChampions.map((champion, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {champion.month_name}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                      {champion.common_name}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">
+                      {champion.detection_count.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 text-right">
+                      {champion.percentage_of_month.toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Complete Species Catalog - At bottom */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -397,118 +509,6 @@ const SpeciesList: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* Monthly Champions */}
-      {monthlyChampions.length > 0 && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-2">Monthly Detection Champions</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            The most detected species each month over the past 12 months
-          </p>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Month
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Top Species
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Detections
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    % of Month
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {monthlyChampions.map((champion, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {champion.month_name}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                      {champion.common_name}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">
-                      {champion.detection_count.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 text-right">
-                      {champion.percentage_of_month.toFixed(1)}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Selected Family Details */}
-      {selectedFamily && selectedFamilyStats && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">{selectedFamily}</h2>
-            <button
-              onClick={() => {
-                setSelectedFamily(null)
-                setFamilySpecies([])
-              }}
-              className="text-gray-500 hover:text-gray-700 text-xl"
-            >
-              ×
-            </button>
-          </div>
-
-          {/* Family Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
-              <div className="text-2xl font-bold text-indigo-dark">
-                {selectedFamilyStats.species_count}
-              </div>
-              <div className="text-sm text-muted-foreground">Species</div>
-            </div>
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
-              <div className="text-2xl font-bold text-indigo-dark">
-                {selectedFamilyStats.total_detections.toLocaleString()}
-              </div>
-              <div className="text-sm text-muted-foreground">Total Detections</div>
-            </div>
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
-              <div className="text-2xl font-bold text-indigo-dark">
-                {Math.round(selectedFamilyStats.total_detections / selectedFamilyStats.species_count).toLocaleString()}
-              </div>
-              <div className="text-sm text-muted-foreground">Avg per Species</div>
-            </div>
-            <div className="text-center p-4 bg-gray-50 rounded-lg">
-              <div className="text-2xl font-bold text-indigo-dark">
-                {((selectedFamilyStats.total_detections / familyData.reduce((sum, f) => sum + f.total_detections, 0)) * 100).toFixed(1)}%
-              </div>
-              <div className="text-sm text-muted-foreground">of All Detections</div>
-            </div>
-          </div>
-
-          {/* Species Grid */}
-          <h3 className="text-lg font-semibold mb-4">Species in {selectedFamily}</h3>
-          {loadingSpecies ? (
-            <div className="text-center text-muted-foreground py-8">
-              Loading species...
-            </div>
-          ) : familySpecies.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {familySpecies.map((species) => (
-                <SpeciesCard key={species.id} species={species} />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center text-muted-foreground py-8">
-              No species found in this family
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }
