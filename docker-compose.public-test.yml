@@ -3,14 +3,14 @@
 # This version exposes ports for local testing before adding Cloudflare.
 # Once tested, use docker-compose.public.yml with Cloudflare tunnel.
 #
+# Uses pre-built images from GitHub Container Registry.
+#
 # Usage:
 #   docker compose -f docker-compose.public-test.yml --env-file .env.public up -d
 
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/lostculture/birdweatherviz3-backend:latest
     container_name: birdweatherviz3-backend-public
     # Expose on different ports than local dev instance
     ports:
@@ -33,9 +33,7 @@ services:
       - birdweather-public-net
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ghcr.io/lostculture/birdweatherviz3-frontend:latest
     container_name: birdweatherviz3-frontend-public
     # Expose on different port than local dev instance
     ports:

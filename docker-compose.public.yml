@@ -3,6 +3,9 @@
 # This configuration exposes BirdWeatherViz3 to the internet securely
 # using Cloudflare Tunnel. No port forwarding required.
 #
+# Uses pre-built images from GitHub Container Registry.
+# No need to clone the repo — just copy this file and .env.public.
+#
 # Usage:
 #   1. Copy .env.public.example to .env.public and configure
 #   2. Create a Cloudflare Tunnel and get the token
@@ -10,9 +13,7 @@
 
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/lostculture/birdweatherviz3-backend:latest
     container_name: birdweatherviz3-backend-public
     # No external port exposure - only accessible via internal network
     expose:
@@ -35,9 +36,7 @@ services:
       - birdweather-public-net
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ghcr.io/lostculture/birdweatherviz3-frontend:latest
     container_name: birdweatherviz3-frontend-public
     # No external port exposure - only accessible via cloudflared
     expose:
