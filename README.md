@@ -1,6 +1,6 @@
 # BirdWeatherViz3 🐦
 
-**Version:** 1.4.2
+**Version:** 1.4.3
 
 Next-generation bird detection visualization application built with FastAPI + React, with Docker deployment and optional public access via Cloudflare Tunnel.
 
@@ -136,7 +136,65 @@ The default `docker-compose.yml` runs:
 - **Backend** on port 8001 (FastAPI)
 - **Frontend** on port 3001 (Nginx serving React)
 
-### Option 3: Public Deployment with Cloudflare Tunnel
+### Option 3: Pre-built Docker Images (No Clone Required)
+
+Run directly from pre-built images on GitHub Container Registry — no need to clone the repo or build anything.
+
+**Images:**
+
+- `ghcr.io/lostculture/birdweatherviz3-backend:latest`
+- `ghcr.io/lostculture/birdweatherviz3-frontend:latest`
+
+Tags available: semver (`1.4.3`, `1.4`), commit SHA, `latest`. Platforms: `linux/amd64` + `linux/arm64`.
+
+**Quick run with `docker-compose.public-test.yml`:**
+
+```bash
+# Download the compose file
+curl -O https://raw.githubusercontent.com/lostculture/BirdWeatherViz3/master/docker-compose.public-test.yml
+
+# Set required environment variables
+export CONFIG_PASSWORD="your-secure-password"
+export JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+
+# Start (pulls images automatically)
+docker compose -f docker-compose.public-test.yml up -d
+
+# Access frontend at http://localhost:3004
+# Backend API at http://localhost:8002
+```
+
+**Minimal standalone compose file:**
+
+```yaml
+services:
+  backend:
+    image: ghcr.io/lostculture/birdweatherviz3-backend:latest
+    ports:
+      - "8001:8000"
+    volumes:
+      - birdweather-data:/app/data
+    environment:
+      - CONFIG_PASSWORD=${CONFIG_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - DATABASE_URL=sqlite:///./data/db/birdweather.db
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/lostculture/birdweatherviz3-frontend:latest
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  birdweather-data:
+```
+
+Data persists in the `birdweather-data` named volume across restarts and upgrades.
+
+### Option 4: Public Deployment with Cloudflare Tunnel
 
 For secure public access without port forwarding:
 
@@ -165,7 +223,7 @@ docker compose -p birdweatherviz3-dev up -d
 docker compose -p birdweatherviz3-public -f docker-compose.public.yml --env-file .env.public up -d
 ```
 
-### Option 4: Manual Local Development
+### Option 5: Manual Local Development
 
 For manual setup without the test scripts:
 
