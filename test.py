@@ -24,11 +24,14 @@ YELLOW = "\033[1;33m"
 RED = "\033[0;31m"
 NC = "\033[0m"
 
-# Enable ANSI colours on Windows 10+
+# Enable ANSI colours and UTF-8 output on Windows 10+
 if sys.platform == "win32":
     import ctypes
     kernel32 = ctypes.windll.kernel32
     kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+    # Force UTF-8 output so Unicode symbols render correctly
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 def header(msg):
     print(f"\n{BLUE}{'=' * 40}")
@@ -36,16 +39,16 @@ def header(msg):
     print(f"{'=' * 40}{NC}\n")
 
 def success(msg):
-    print(f"{GREEN}\u2713 {msg}{NC}")
+    print(f"{GREEN}+ {msg}{NC}")
 
 def error(msg):
-    print(f"{RED}\u2717 {msg}{NC}")
+    print(f"{RED}x {msg}{NC}")
 
 def info(msg):
-    print(f"{BLUE}\u2139 {msg}{NC}")
+    print(f"{BLUE}> {msg}{NC}")
 
 def warning(msg):
-    print(f"{YELLOW}\u26A0 {msg}{NC}")
+    print(f"{YELLOW}! {msg}{NC}")
 
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
