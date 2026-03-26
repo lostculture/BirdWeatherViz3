@@ -186,7 +186,6 @@ compare_final.py
 debug_*.py
 kill_port_8000.py
 wait_and_capture.py
-test.py
 
 # ========================================
 # Screenshots

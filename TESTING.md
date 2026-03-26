@@ -20,7 +20,9 @@ We've provided three test scripts for different platforms:
 python test.py
 ```
 
-This script works on Windows, Mac, and Linux.
+This script works on Windows, Mac, and Linux. It automatically detects your
+platform, creates required data directories, installs dependencies, and starts
+both servers.
 
 ### Option 2: Linux/Mac Bash Script
 
@@ -28,6 +30,8 @@ This script works on Windows, Mac, and Linux.
 chmod +x test.sh
 ./test.sh
 ```
+
+This also works in Git Bash on Windows.
 
 ### Option 3: Windows PowerShell Script
 
@@ -91,21 +95,29 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 ```
 
-### 4. Start Backend (Terminal 1)
+### 4. Create Data Directories
+
+The backend requires these directories for the SQLite database, logs, and uploads:
+
+```bash
+mkdir -p backend/data/db backend/data/logs backend/data/uploads
+```
+
+### 5. Start Backend (Terminal 1)
 
 ```bash
 cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 5. Start Frontend (Terminal 2)
+### 6. Start Frontend (Terminal 2)
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-### 6. Open Browser
+### 7. Open Browser
 
 Navigate to: http://localhost:3000
 
@@ -300,5 +312,5 @@ If you encounter issues:
 
 ---
 
-**Version:** 1.0.0
-**Last Updated:** 2025
+**Version:** 1.4.2
+**Last Updated:** 2026-03

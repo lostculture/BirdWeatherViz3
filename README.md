@@ -1,6 +1,6 @@
 # BirdWeatherViz3 🐦
 
-**Version:** 1.3.0
+**Version:** 1.4.2
 
 Next-generation bird detection visualization application built with FastAPI + React, with Docker deployment and optional public access via Cloudflare Tunnel.
 
@@ -185,10 +185,10 @@ pip install -r requirements-dev.txt
 cp .env.example .env
 # Edit .env with your settings
 
-# Run database migrations
-alembic upgrade head
+# Create data directories (required before first run)
+mkdir -p data/db data/logs data/uploads
 
-# Start FastAPI server
+# Start FastAPI server (database tables are auto-created on startup)
 uvicorn app.main:app --reload --port 8000
 
 # API docs available at http://localhost:8000/docs

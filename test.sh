@@ -53,8 +53,20 @@ print_header "BirdWeatherViz3 Test Script"
 # Check dependencies
 print_header "Checking Dependencies"
 
+# Detect Python command (python3 on Linux/Mac, python on Windows/some systems)
 if command -v python3 &> /dev/null; then
-    print_success "Python 3 is installed"
+    PYTHON=python3
+    print_success "Python 3 is installed (python3)"
+elif command -v python &> /dev/null; then
+    # Verify it's Python 3, not Python 2
+    PY_VERSION=$(python --version 2>&1)
+    if echo "$PY_VERSION" | grep -q "Python 3"; then
+        PYTHON=python
+        print_success "Python 3 is installed (python)"
+    else
+        print_error "Python 3 is required but found: $PY_VERSION"
+        exit 1
+    fi
 else
     print_error "Python 3 is NOT installed"
     exit 1
@@ -85,14 +97,19 @@ else
     print_success ".env file already exists"
 fi
 
+# Create data directories (required for SQLite database, logs, and uploads)
+print_info "Ensuring data directories exist..."
+mkdir -p backend/data/db backend/data/logs backend/data/uploads
+print_success "Data directories ready"
+
 # Check Python dependencies
 print_info "Checking Python dependencies..."
-if python3 -c "import fastapi, sqlalchemy, plotly" 2>/dev/null; then
+if $PYTHON -c "import fastapi, sqlalchemy, plotly" 2>/dev/null; then
     print_success "Backend dependencies are installed"
 else
     print_warning "Some backend dependencies missing"
     print_info "Installing backend dependencies..."
-    pip install -r backend/requirements.txt
+    $PYTHON -m pip install -r backend/requirements.txt
 fi
 
 # Setup frontend
@@ -120,7 +137,7 @@ print_header "Starting Backend Server"
 
 print_info "Starting uvicorn on http://localhost:8000..."
 cd backend
-python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 > ../backend.log 2>&1 &
+$PYTHON -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 > ../backend.log 2>&1 &
 BACKEND_PID=$!
 cd ..
 

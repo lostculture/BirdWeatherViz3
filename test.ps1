@@ -102,6 +102,11 @@ if (!(Test-Path "backend\.env") -and (Test-Path "backend\.env.example")) {
     Print-Success ".env file already exists"
 }
 
+# Create data directories (required for SQLite database, logs, and uploads)
+Print-Info "Ensuring data directories exist..."
+New-Item -ItemType Directory -Force -Path "backend\data\db", "backend\data\logs", "backend\data\uploads" | Out-Null
+Print-Success "Data directories ready"
+
 # Check Python dependencies
 Print-Info "Checking Python dependencies..."
 $importTest = python -c "import fastapi, sqlalchemy, plotly" 2>&1
