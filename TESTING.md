@@ -232,6 +232,18 @@ kill -9 <PID>
 # Similar process for port 3000
 ```
 
+### Image Cache / Permission Errors
+
+If you see `PermissionError: [Errno 13] Permission denied: '/app'`, the image cache path
+defaults to the Docker container path. Set the `DATA_DIR` environment variable in your
+`backend/.env` file:
+
+```
+DATA_DIR=./data
+```
+
+The test scripts handle this automatically via `.env.example`.
+
 ### Import Errors (Python)
 
 ```bash

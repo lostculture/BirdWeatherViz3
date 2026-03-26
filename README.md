@@ -218,6 +218,7 @@ npm run dev
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `DATA_DIR` | Base data directory (image cache, etc.) | `./data` (local), `/app/data` (Docker) |
 | `DATABASE_URL` | SQLite database path | `sqlite:///./data/db/birdweather.db` |
 | `CONFIG_PASSWORD` | Initial admin password (used until custom password is set) | Required |
 | `JWT_SECRET` | JWT token signing secret (32+ chars recommended) | Required |

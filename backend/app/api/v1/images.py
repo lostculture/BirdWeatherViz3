@@ -17,8 +17,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Cache directory
-CACHE_DIR = Path("/app/data/image_cache")
+# Cache directory - use relative path for local dev, absolute for Docker
+_base = Path(os.environ.get("DATA_DIR", "./data"))
+CACHE_DIR = _base / "image_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
