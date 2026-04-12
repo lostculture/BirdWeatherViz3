@@ -135,6 +135,28 @@ fi
 # Start backend
 print_header "Starting Backend Server"
 
+# Check if port 8000 is already in use
+if command -v lsof &> /dev/null; then
+    EXISTING_PID=$(lsof -ti :8000 2>/dev/null || true)
+elif command -v ss &> /dev/null; then
+    EXISTING_PID=$(ss -tlnp 2>/dev/null | grep ':8000 ' | grep -oP 'pid=\K[0-9]+' || true)
+elif command -v netstat &> /dev/null; then
+    EXISTING_PID=$(netstat -tlnp 2>/dev/null | grep ':8000 ' | awk '{print $NF}' | cut -d/ -f1 || true)
+fi
+
+if [ -n "$EXISTING_PID" ]; then
+    print_warning "Port 8000 is already in use (PID: $EXISTING_PID)"
+    print_info "Killing existing process..."
+    kill $EXISTING_PID 2>/dev/null || true
+    sleep 1
+    # Force kill if still running
+    if kill -0 $EXISTING_PID 2>/dev/null; then
+        kill -9 $EXISTING_PID 2>/dev/null || true
+        sleep 1
+    fi
+    print_success "Freed port 8000"
+fi
+
 print_info "Starting uvicorn on http://localhost:8000..."
 cd backend
 $PYTHON -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 > ../backend.log 2>&1 &
@@ -154,6 +176,28 @@ fi
 
 # Start frontend
 print_header "Starting Frontend Dev Server"
+
+# Check if port 3000 is already in use
+EXISTING_FE_PID=""
+if command -v lsof &> /dev/null; then
+    EXISTING_FE_PID=$(lsof -ti :3000 2>/dev/null || true)
+elif command -v ss &> /dev/null; then
+    EXISTING_FE_PID=$(ss -tlnp 2>/dev/null | grep ':3000 ' | grep -oP 'pid=\K[0-9]+' || true)
+elif command -v netstat &> /dev/null; then
+    EXISTING_FE_PID=$(netstat -tlnp 2>/dev/null | grep ':3000 ' | awk '{print $NF}' | cut -d/ -f1 || true)
+fi
+
+if [ -n "$EXISTING_FE_PID" ]; then
+    print_warning "Port 3000 is already in use (PID: $EXISTING_FE_PID)"
+    print_info "Killing existing process..."
+    kill $EXISTING_FE_PID 2>/dev/null || true
+    sleep 1
+    if kill -0 $EXISTING_FE_PID 2>/dev/null; then
+        kill -9 $EXISTING_FE_PID 2>/dev/null || true
+        sleep 1
+    fi
+    print_success "Freed port 3000"
+fi
 
 print_info "Starting Vite dev server on http://localhost:3000..."
 cd frontend

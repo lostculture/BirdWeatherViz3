@@ -143,6 +143,19 @@ if (!(Test-Path "frontend\node_modules")) {
 # Start backend
 Print-Header "Starting Backend Server"
 
+# Check if port 8000 is already in use
+$existingProcs = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue |
+                 Select-Object -ExpandProperty OwningProcess -Unique
+if ($existingProcs) {
+    Print-Warning "Port 8000 is already in use (PID: $($existingProcs -join ', '))"
+    Print-Info "Killing existing process..."
+    foreach ($proc in $existingProcs) {
+        Stop-Process -Id $proc -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 1
+    Print-Success "Freed port 8000"
+}
+
 Print-Info "Starting uvicorn on http://localhost:8000..."
 
 $BackendJob = Start-Job -ScriptBlock {
@@ -167,6 +180,19 @@ try {
 
 # Start frontend
 Print-Header "Starting Frontend Dev Server"
+
+# Check if port 3000 is already in use
+$existingFeProcs = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue |
+                   Select-Object -ExpandProperty OwningProcess -Unique
+if ($existingFeProcs) {
+    Print-Warning "Port 3000 is already in use (PID: $($existingFeProcs -join ', '))"
+    Print-Info "Killing existing process..."
+    foreach ($proc in $existingFeProcs) {
+        Stop-Process -Id $proc -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 1
+    Print-Success "Freed port 3000"
+}
 
 Print-Info "Starting Vite dev server on http://localhost:3000..."
 
