@@ -1,240 +1,165 @@
-#!/bin/bash
-# BirdWeatherViz3 Test Script (Linux/Mac)
-# Automated testing script for local development.
-# Version: 1.0.0
+#!/usr/bin/env bash
+# BirdWeatherViz3 local dev setup (Linux / macOS)
+# Creates an isolated Python venv at backend/.venv and uses bun for the
+# frontend. Does not touch system Python or global npm state.
+set -euo pipefail
 
-set -e
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+h()  { echo -e "\n${BLUE}========================================${NC}\n${BLUE}$1${NC}\n${BLUE}========================================${NC}\n"; }
+ok() { echo -e "${GREEN}✓ $1${NC}"; }
+er() { echo -e "${RED}✗ $1${NC}"; }
+in_(){ echo -e "${BLUE}ℹ $1${NC}"; }
+wa() { echo -e "${YELLOW}⚠ $1${NC}"; }
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Functions
-print_header() {
-    echo -e "\n${BLUE}========================================${NC}"
-    echo -e "${BLUE}$1${NC}"
-    echo -e "${BLUE}========================================${NC}\n"
-}
-
-print_success() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
-
-print_error() {
-    echo -e "${RED}✗ $1${NC}"
-}
-
-print_info() {
-    echo -e "${BLUE}ℹ $1${NC}"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠ $1${NC}"
-}
-
-# Trap Ctrl+C
 cleanup() {
-    print_header "Shutting Down"
-    print_info "Stopping servers..."
-    kill $BACKEND_PID 2>/dev/null || true
-    kill $FRONTEND_PID 2>/dev/null || true
-    print_success "All servers stopped"
+    h "Shutting Down"
+    [[ -n "${BACKEND_PID:-}" ]] && kill "$BACKEND_PID" 2>/dev/null || true
+    [[ -n "${FRONTEND_PID:-}" ]] && kill "$FRONTEND_PID" 2>/dev/null || true
+    ok "All servers stopped"
     exit 0
 }
-
 trap cleanup SIGINT SIGTERM
 
-# Main script
-print_header "BirdWeatherViz3 Test Script"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
 
-# Check dependencies
-print_header "Checking Dependencies"
+h "BirdWeatherViz3 Test Script"
 
-# Detect Python command (python3 on Linux/Mac, python on Windows/some systems)
-if command -v python3 &> /dev/null; then
-    PYTHON=python3
-    print_success "Python 3 is installed (python3)"
-elif command -v python &> /dev/null; then
-    # Verify it's Python 3, not Python 2
-    PY_VERSION=$(python --version 2>&1)
-    if echo "$PY_VERSION" | grep -q "Python 3"; then
-        PYTHON=python
-        print_success "Python 3 is installed (python)"
-    else
-        print_error "Python 3 is required but found: $PY_VERSION"
-        exit 1
-    fi
+h "Checking Dependencies"
+
+if command -v python3 >/dev/null 2>&1; then
+    PY=python3
+elif command -v python >/dev/null 2>&1 && python --version 2>&1 | grep -q "Python 3"; then
+    PY=python
 else
-    print_error "Python 3 is NOT installed"
+    er "Python 3.11+ is NOT installed"; exit 1
+fi
+PY_VER=$($PY -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+if ! $PY -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)'; then
+    er "Python 3.11+ required (found $PY_VER)"; exit 1
+fi
+ok "Python $PY_VER"
+
+if ! command -v bun >/dev/null 2>&1; then
+    er "bun is NOT installed"
+    echo "  Install with: curl -fsSL https://bun.sh/install | bash"
     exit 1
 fi
+ok "bun $(bun --version)"
 
-if command -v node &> /dev/null; then
-    print_success "Node.js is installed"
-else
-    print_error "Node.js is NOT installed"
-    exit 1
-fi
+# ── Backend ──────────────────────────────────────────────────────────────
+h "Setting Up Backend"
 
-if command -v npm &> /dev/null; then
-    print_success "npm is installed"
-else
-    print_error "npm is NOT installed"
-    exit 1
-fi
-
-# Setup backend
-print_header "Setting Up Backend"
-
-if [ ! -f "backend/.env" ] && [ -f "backend/.env.example" ]; then
-    print_info "Creating .env from .env.example..."
+if [[ ! -f backend/.env && -f backend/.env.example ]]; then
     cp backend/.env.example backend/.env
-    print_success ".env file created"
+    ok ".env created from .env.example"
 else
-    print_success ".env file already exists"
+    ok ".env file already exists"
 fi
 
-# Create data directories (required for SQLite database, logs, and uploads)
-print_info "Ensuring data directories exist..."
 mkdir -p backend/data/db backend/data/logs backend/data/uploads
-print_success "Data directories ready"
+ok "Data directories ready"
 
-# Check Python dependencies
-print_info "Checking Python dependencies..."
-if $PYTHON -c "import fastapi, sqlalchemy, plotly" 2>/dev/null; then
-    print_success "Backend dependencies are installed"
+if [[ ! -x backend/.venv/bin/python ]]; then
+    in_ "Creating Python venv at backend/.venv ..."
+    $PY -m venv backend/.venv
+    ok "venv created"
 else
-    print_warning "Some backend dependencies missing"
-    print_info "Installing backend dependencies..."
-    $PYTHON -m pip install -r backend/requirements.txt
+    ok "venv already exists"
 fi
 
-# Setup frontend
-print_header "Setting Up Frontend"
+VPY="$ROOT/backend/.venv/bin/python"
+if "$VPY" -c "import fastapi, sqlalchemy, plotly" >/dev/null 2>&1; then
+    ok "Backend dependencies already installed"
+else
+    in_ "Installing backend dependencies into venv ..."
+    "$VPY" -m pip install -q --upgrade pip
+    (cd backend && "$VPY" -m pip install -q -r requirements.txt)
+    ok "Backend dependencies installed"
+fi
 
-if [ ! -f "frontend/.env" ] && [ -f "frontend/.env.example" ]; then
-    print_info "Creating .env from .env.example..."
+# ── Frontend ─────────────────────────────────────────────────────────────
+h "Setting Up Frontend"
+
+if [[ ! -f frontend/.env && -f frontend/.env.example ]]; then
     cp frontend/.env.example frontend/.env
-    print_success ".env file created"
+    ok ".env created from .env.example"
 else
-    print_success ".env file already exists"
+    ok ".env file already exists"
 fi
 
-if [ ! -d "frontend/node_modules" ]; then
-    print_warning "node_modules not found"
-    print_info "Installing frontend dependencies..."
-    cd frontend && npm install && cd ..
-    print_success "Frontend dependencies installed"
+if [[ ! -d frontend/node_modules ]]; then
+    in_ "Installing frontend dependencies with bun ..."
+    (cd frontend && bun install --frozen-lockfile)
+    ok "Frontend dependencies installed"
 else
-    print_success "node_modules already exists"
+    ok "node_modules already exists"
 fi
 
-# Start backend
-print_header "Starting Backend Server"
-
-# Check if port 8000 is already in use
-if command -v lsof &> /dev/null; then
-    EXISTING_PID=$(lsof -ti :8000 2>/dev/null || true)
-elif command -v ss &> /dev/null; then
-    EXISTING_PID=$(ss -tlnp 2>/dev/null | grep ':8000 ' | grep -oP 'pid=\K[0-9]+' || true)
-elif command -v netstat &> /dev/null; then
-    EXISTING_PID=$(netstat -tlnp 2>/dev/null | grep ':8000 ' | awk '{print $NF}' | cut -d/ -f1 || true)
-fi
-
-if [ -n "$EXISTING_PID" ]; then
-    print_warning "Port 8000 is already in use (PID: $EXISTING_PID)"
-    print_info "Killing existing process..."
-    kill $EXISTING_PID 2>/dev/null || true
-    sleep 1
-    # Force kill if still running
-    if kill -0 $EXISTING_PID 2>/dev/null; then
-        kill -9 $EXISTING_PID 2>/dev/null || true
-        sleep 1
+# ── Free ports if something is already bound ─────────────────────────────
+free_port() {
+    local port="$1" pid=""
+    if command -v lsof >/dev/null 2>&1; then
+        pid=$(lsof -ti :"$port" 2>/dev/null || true)
+    elif command -v ss >/dev/null 2>&1; then
+        pid=$(ss -tlnp 2>/dev/null | grep ":$port " | grep -oE 'pid=[0-9]+' | cut -d= -f2 || true)
     fi
-    print_success "Freed port 8000"
-fi
+    if [[ -n "$pid" ]]; then
+        wa "Port $port in use (PID $pid) — killing"
+        kill "$pid" 2>/dev/null || true
+        sleep 1
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+}
+free_port 8000
+free_port 3000
 
-print_info "Starting uvicorn on http://localhost:8000..."
-cd backend
-$PYTHON -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 > ../backend.log 2>&1 &
+# ── Start backend ────────────────────────────────────────────────────────
+h "Starting Backend Server"
+in_ "uvicorn on http://localhost:8000 ..."
+(cd backend && "$VPY" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000) \
+    > backend.log 2>&1 &
 BACKEND_PID=$!
-cd ..
 
-print_info "Waiting for backend to start..."
-sleep 3
-
-if curl -s http://localhost:8000/api/v1/health > /dev/null; then
-    print_success "Backend is running at http://localhost:8000"
-    print_info "API docs available at http://localhost:8000/api/v1/docs"
-else
-    print_error "Backend failed to start (check backend.log)"
-    exit 1
-fi
-
-# Start frontend
-print_header "Starting Frontend Dev Server"
-
-# Check if port 3000 is already in use
-EXISTING_FE_PID=""
-if command -v lsof &> /dev/null; then
-    EXISTING_FE_PID=$(lsof -ti :3000 2>/dev/null || true)
-elif command -v ss &> /dev/null; then
-    EXISTING_FE_PID=$(ss -tlnp 2>/dev/null | grep ':3000 ' | grep -oP 'pid=\K[0-9]+' || true)
-elif command -v netstat &> /dev/null; then
-    EXISTING_FE_PID=$(netstat -tlnp 2>/dev/null | grep ':3000 ' | awk '{print $NF}' | cut -d/ -f1 || true)
-fi
-
-if [ -n "$EXISTING_FE_PID" ]; then
-    print_warning "Port 3000 is already in use (PID: $EXISTING_FE_PID)"
-    print_info "Killing existing process..."
-    kill $EXISTING_FE_PID 2>/dev/null || true
+for _ in {1..20}; do
     sleep 1
-    if kill -0 $EXISTING_FE_PID 2>/dev/null; then
-        kill -9 $EXISTING_FE_PID 2>/dev/null || true
-        sleep 1
-    fi
-    print_success "Freed port 3000"
+    if curl -sf http://localhost:8000/api/v1/health >/dev/null; then break; fi
+done
+if ! curl -sf http://localhost:8000/api/v1/health >/dev/null; then
+    er "Backend failed to start (see backend.log)"; cleanup
 fi
+ok "Backend up on http://localhost:8000"
 
-print_info "Starting Vite dev server on http://localhost:3000..."
-cd frontend
-npm run dev > ../frontend.log 2>&1 &
+# ── Start frontend ───────────────────────────────────────────────────────
+h "Starting Frontend Dev Server"
+in_ "bun run dev on http://localhost:3000 ..."
+(cd frontend && bun run dev) > frontend.log 2>&1 &
 FRONTEND_PID=$!
-cd ..
 
-print_info "Waiting for frontend to start..."
-sleep 5
-
-if curl -s http://localhost:3000 > /dev/null; then
-    print_success "Frontend is running at http://localhost:3000"
-else
-    print_warning "Frontend might not be ready yet (check frontend.log)"
+for _ in {1..20}; do
+    sleep 1
+    if curl -sf http://localhost:3000 >/dev/null; then break; fi
+done
+if ! curl -sf http://localhost:3000 >/dev/null; then
+    wa "Frontend not ready yet (check frontend.log)"
 fi
+ok "Frontend up on http://localhost:3000"
 
-# Open browser
-print_header "Opening Browser"
-print_info "Opening http://localhost:3000 in your browser..."
-
-if command -v xdg-open &> /dev/null; then
-    xdg-open http://localhost:3000
-elif command -v open &> /dev/null; then
+# ── Open browser ─────────────────────────────────────────────────────────
+h "Opening Browser"
+if command -v open >/dev/null 2>&1; then
     open http://localhost:3000
+elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open http://localhost:3000
 else
-    print_warning "Could not auto-open browser"
+    wa "Could not auto-open browser"
 fi
 
-# Keep running
-print_header "Servers Running"
-print_success "Backend: http://localhost:8000"
-print_success "Frontend: http://localhost:3000"
-print_success "API Docs: http://localhost:8000/api/v1/docs"
-echo ""
-print_warning "Press Ctrl+C to stop all servers"
-echo ""
-print_info "Logs available in backend.log and frontend.log"
+h "Servers Running"
+ok "Backend:  http://localhost:8000"
+ok "Frontend: http://localhost:3000"
+ok "API Docs: http://localhost:8000/api/v1/docs"
+wa "Press Ctrl+C to stop"
+echo
 
-# Wait for Ctrl+C
 wait

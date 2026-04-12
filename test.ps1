@@ -1,249 +1,164 @@
-# BirdWeatherViz3 Test Script (Windows PowerShell)
-# Automated testing script for local development.
-# Version: 1.0.0
+# BirdWeatherViz3 local dev setup (Windows PowerShell)
+# Creates an isolated Python venv at backend\.venv and uses bun for the
+# frontend. Does not touch system Python or global npm state.
 
-# Functions
-function Print-Header {
-    param([string]$Message)
-    Write-Host ""
-    Write-Host "========================================" -ForegroundColor Blue
-    Write-Host $Message -ForegroundColor Blue
-    Write-Host "========================================" -ForegroundColor Blue
-    Write-Host ""
-}
+$ErrorActionPreference = "Stop"
 
-function Print-Success {
-    param([string]$Message)
-    Write-Host "✓ $Message" -ForegroundColor Green
-}
+function H   ($m) { Write-Host ""; Write-Host "========================================" -ForegroundColor Blue; Write-Host $m -ForegroundColor Blue; Write-Host "========================================" -ForegroundColor Blue; Write-Host "" }
+function OK  ($m) { Write-Host "+ $m" -ForegroundColor Green }
+function ER  ($m) { Write-Host "x $m" -ForegroundColor Red }
+function IN_ ($m) { Write-Host "> $m" -ForegroundColor Cyan }
+function WA  ($m) { Write-Host "! $m" -ForegroundColor Yellow }
 
-function Print-Error {
-    param([string]$Message)
-    Write-Host "✗ $Message" -ForegroundColor Red
-}
+$Script:BackendJob  = $null
+$Script:FrontendJob = $null
 
-function Print-Info {
-    param([string]$Message)
-    Write-Host "ℹ $Message" -ForegroundColor Cyan
-}
-
-function Print-Warning {
-    param([string]$Message)
-    Write-Host "⚠ $Message" -ForegroundColor Yellow
-}
-
-# Cleanup function
 function Cleanup {
-    Print-Header "Shutting Down"
-    Print-Info "Stopping servers..."
-
-    if ($BackendJob) {
-        Stop-Job -Job $BackendJob -ErrorAction SilentlyContinue
-        Remove-Job -Job $BackendJob -ErrorAction SilentlyContinue
-    }
-
-    if ($FrontendJob) {
-        Stop-Job -Job $FrontendJob -ErrorAction SilentlyContinue
-        Remove-Job -Job $FrontendJob -ErrorAction SilentlyContinue
-    }
-
-    # Kill any remaining processes on ports 8000 and 3000
-    $processes = Get-NetTCPConnection -LocalPort 8000,3000 -ErrorAction SilentlyContinue |
-                 Select-Object -ExpandProperty OwningProcess -Unique
-
-    foreach ($proc in $processes) {
-        Stop-Process -Id $proc -Force -ErrorAction SilentlyContinue
-    }
-
-    Print-Success "All servers stopped"
+    H "Shutting Down"
+    if ($Script:BackendJob)  { Stop-Job -Job $Script:BackendJob  -ErrorAction SilentlyContinue; Remove-Job -Job $Script:BackendJob  -ErrorAction SilentlyContinue }
+    if ($Script:FrontendJob) { Stop-Job -Job $Script:FrontendJob -ErrorAction SilentlyContinue; Remove-Job -Job $Script:FrontendJob -ErrorAction SilentlyContinue }
+    $procs = Get-NetTCPConnection -LocalPort 8000,3000 -ErrorAction SilentlyContinue |
+             Select-Object -ExpandProperty OwningProcess -Unique
+    foreach ($p in $procs) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
+    OK "All servers stopped"
 }
-
-# Register cleanup on exit
 $null = Register-EngineEvent PowerShell.Exiting -Action { Cleanup }
 
-# Main script
-Print-Header "BirdWeatherViz3 Test Script"
+H "BirdWeatherViz3 Test Script"
 
-# Check dependencies
-Print-Header "Checking Dependencies"
+H "Checking Dependencies"
 
 try {
-    $pythonVersion = python --version 2>&1
-    Print-Success "Python is installed: $pythonVersion"
+    $pyVer = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1
+    $parts = $pyVer.Split('.')
+    if ([int]$parts[0] -lt 3 -or ([int]$parts[0] -eq 3 -and [int]$parts[1] -lt 11)) {
+        ER "Python 3.11+ required (found $pyVer)"; exit 1
+    }
+    OK "Python $pyVer"
 } catch {
-    Print-Error "Python is NOT installed"
-    exit 1
+    ER "Python 3.11+ is NOT installed"; exit 1
 }
 
 try {
-    $nodeVersion = node --version 2>&1
-    Print-Success "Node.js is installed: $nodeVersion"
+    $bunVer = & bun --version 2>&1
+    OK "bun $bunVer"
 } catch {
-    Print-Error "Node.js is NOT installed"
+    ER "bun is NOT installed"
+    Write-Host "  Install with: powershell -c `"irm bun.sh/install.ps1 | iex`""
     exit 1
 }
 
-try {
-    $npmVersion = npm --version 2>&1
-    Print-Success "npm is installed: $npmVersion"
-} catch {
-    Print-Error "npm is NOT installed"
-    exit 1
-}
-
-# Setup backend
-Print-Header "Setting Up Backend"
+# ── Backend ──────────────────────────────────────────────────────────────
+H "Setting Up Backend"
 
 if (!(Test-Path "backend\.env") -and (Test-Path "backend\.env.example")) {
-    Print-Info "Creating .env from .env.example..."
     Copy-Item "backend\.env.example" "backend\.env"
-    Print-Success ".env file created"
-} elseif (Test-Path "backend\.env") {
-    Print-Success ".env file already exists"
-}
-
-# Create data directories (required for SQLite database, logs, and uploads)
-Print-Info "Ensuring data directories exist..."
-New-Item -ItemType Directory -Force -Path "backend\data\db", "backend\data\logs", "backend\data\uploads" | Out-Null
-Print-Success "Data directories ready"
-
-# Check Python dependencies
-Print-Info "Checking Python dependencies..."
-$importTest = python -c "import fastapi, sqlalchemy, plotly" 2>&1
-if ($LASTEXITCODE -eq 0) {
-    Print-Success "Backend dependencies are installed"
+    OK ".env created from .env.example"
 } else {
-    Print-Warning "Some backend dependencies missing"
-    Print-Info "Installing backend dependencies..."
-    pip install -r backend\requirements.txt
+    OK ".env file already exists"
 }
 
-# Setup frontend
-Print-Header "Setting Up Frontend"
+New-Item -ItemType Directory -Force -Path "backend\data\db","backend\data\logs","backend\data\uploads" | Out-Null
+OK "Data directories ready"
+
+$VPY = "backend\.venv\Scripts\python.exe"
+if (!(Test-Path $VPY)) {
+    IN_ "Creating Python venv at backend\.venv ..."
+    & python -m venv backend\.venv
+    OK "venv created"
+} else {
+    OK "venv already exists"
+}
+
+& $VPY -c "import fastapi, sqlalchemy, plotly" 2>$null
+if ($LASTEXITCODE -eq 0) {
+    OK "Backend dependencies already installed"
+} else {
+    IN_ "Installing backend dependencies into venv ..."
+    & $VPY -m pip install -q --upgrade pip
+    Push-Location backend
+    & ..\$VPY -m pip install -q -r requirements.txt
+    Pop-Location
+    OK "Backend dependencies installed"
+}
+
+# ── Frontend ─────────────────────────────────────────────────────────────
+H "Setting Up Frontend"
 
 if (!(Test-Path "frontend\.env") -and (Test-Path "frontend\.env.example")) {
-    Print-Info "Creating .env from .env.example..."
     Copy-Item "frontend\.env.example" "frontend\.env"
-    Print-Success ".env file created"
-} elseif (Test-Path "frontend\.env") {
-    Print-Success ".env file already exists"
+    OK ".env created from .env.example"
+} else {
+    OK ".env file already exists"
 }
 
 if (!(Test-Path "frontend\node_modules")) {
-    Print-Warning "node_modules not found"
-    Print-Info "Installing frontend dependencies..."
+    IN_ "Installing frontend dependencies with bun ..."
     Push-Location frontend
-    npm install
+    & bun install --frozen-lockfile
     Pop-Location
-    Print-Success "Frontend dependencies installed"
+    OK "Frontend dependencies installed"
 } else {
-    Print-Success "node_modules already exists"
+    OK "node_modules already exists"
 }
 
-# Start backend
-Print-Header "Starting Backend Server"
-
-# Check if port 8000 is already in use
-$existingProcs = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue |
-                 Select-Object -ExpandProperty OwningProcess -Unique
-if ($existingProcs) {
-    Print-Warning "Port 8000 is already in use (PID: $($existingProcs -join ', '))"
-    Print-Info "Killing existing process..."
-    foreach ($proc in $existingProcs) {
-        Stop-Process -Id $proc -Force -ErrorAction SilentlyContinue
+# ── Free ports ───────────────────────────────────────────────────────────
+foreach ($port in 8000,3000) {
+    $procs = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue |
+             Select-Object -ExpandProperty OwningProcess -Unique
+    if ($procs) {
+        WA "Port $port in use — killing"
+        foreach ($p in $procs) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 1
     }
+}
+
+# ── Start backend ────────────────────────────────────────────────────────
+H "Starting Backend Server"
+IN_ "uvicorn on http://localhost:8000 ..."
+$Script:BackendJob = Start-Job -ScriptBlock {
+    param($root)
+    Set-Location "$root\backend"
+    & "$root\backend\.venv\Scripts\python.exe" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+} -ArgumentList $PWD.Path
+
+for ($i=0; $i -lt 20; $i++) {
     Start-Sleep -Seconds 1
-    Print-Success "Freed port 8000"
+    try { Invoke-WebRequest -Uri "http://localhost:8000/api/v1/health" -UseBasicParsing -TimeoutSec 3 | Out-Null; break } catch {}
 }
+try { Invoke-WebRequest -Uri "http://localhost:8000/api/v1/health" -UseBasicParsing -TimeoutSec 3 | Out-Null; OK "Backend up on http://localhost:8000" }
+catch { ER "Backend failed to start"; Cleanup; exit 1 }
 
-Print-Info "Starting uvicorn on http://localhost:8000..."
+# ── Start frontend ───────────────────────────────────────────────────────
+H "Starting Frontend Dev Server"
+IN_ "bun run dev on http://localhost:3000 ..."
+$Script:FrontendJob = Start-Job -ScriptBlock {
+    param($root)
+    Set-Location "$root\frontend"
+    & bun run dev
+} -ArgumentList $PWD.Path
 
-$BackendJob = Start-Job -ScriptBlock {
-    Set-Location $using:PWD\backend
-    python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-}
-
-Print-Info "Waiting for backend to start..."
-Start-Sleep -Seconds 3
-
-try {
-    $response = Invoke-WebRequest -Uri "http://localhost:8000/api/v1/health" -UseBasicParsing -TimeoutSec 5
-    if ($response.StatusCode -eq 200) {
-        Print-Success "Backend is running at http://localhost:8000"
-        Print-Info "API docs available at http://localhost:8000/api/v1/docs"
-    }
-} catch {
-    Print-Error "Backend failed to start"
-    Cleanup
-    exit 1
-}
-
-# Start frontend
-Print-Header "Starting Frontend Dev Server"
-
-# Check if port 3000 is already in use
-$existingFeProcs = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue |
-                   Select-Object -ExpandProperty OwningProcess -Unique
-if ($existingFeProcs) {
-    Print-Warning "Port 3000 is already in use (PID: $($existingFeProcs -join ', '))"
-    Print-Info "Killing existing process..."
-    foreach ($proc in $existingFeProcs) {
-        Stop-Process -Id $proc -Force -ErrorAction SilentlyContinue
-    }
+for ($i=0; $i -lt 20; $i++) {
     Start-Sleep -Seconds 1
-    Print-Success "Freed port 3000"
+    try { Invoke-WebRequest -Uri "http://localhost:3000" -UseBasicParsing -TimeoutSec 3 | Out-Null; break } catch {}
 }
+try { Invoke-WebRequest -Uri "http://localhost:3000" -UseBasicParsing -TimeoutSec 3 | Out-Null; OK "Frontend up on http://localhost:3000" }
+catch { WA "Frontend not ready yet (check job output)" }
 
-Print-Info "Starting Vite dev server on http://localhost:3000..."
-
-$FrontendJob = Start-Job -ScriptBlock {
-    Set-Location $using:PWD\frontend
-    npm run dev
-}
-
-Print-Info "Waiting for frontend to start..."
-Start-Sleep -Seconds 5
-
-try {
-    $response = Invoke-WebRequest -Uri "http://localhost:3000" -UseBasicParsing -TimeoutSec 5
-    if ($response.StatusCode -eq 200) {
-        Print-Success "Frontend is running at http://localhost:3000"
-    }
-} catch {
-    Print-Warning "Frontend might not be ready yet"
-    Print-Info "It may take a few more seconds to compile..."
-}
-
-# Open browser
-Print-Header "Opening Browser"
-Print-Info "Opening http://localhost:3000 in your browser..."
-Start-Sleep -Seconds 2
+H "Opening Browser"
 Start-Process "http://localhost:3000"
 
-# Keep running
-Print-Header "Servers Running"
-Print-Success "Backend: http://localhost:8000"
-Print-Success "Frontend: http://localhost:3000"
-Print-Success "API Docs: http://localhost:8000/api/v1/docs"
-Write-Host ""
-Print-Warning "Press Ctrl+C to stop all servers"
+H "Servers Running"
+OK "Backend:  http://localhost:8000"
+OK "Frontend: http://localhost:3000"
+OK "API Docs: http://localhost:8000/api/v1/docs"
+WA "Press Ctrl+C to stop"
 Write-Host ""
 
 try {
-    # Keep the script running
     while ($true) {
         Start-Sleep -Seconds 1
-
-        # Check if jobs are still running
-        if ($BackendJob.State -ne "Running") {
-            Print-Error "Backend stopped unexpectedly"
-            break
-        }
-        if ($FrontendJob.State -ne "Running") {
-            Print-Error "Frontend stopped unexpectedly"
-            break
-        }
+        if ($Script:BackendJob.State  -ne "Running") { ER "Backend stopped unexpectedly";  break }
+        if ($Script:FrontendJob.State -ne "Running") { ER "Frontend stopped unexpectedly"; break }
     }
-} finally {
-    Cleanup
-}
+} finally { Cleanup }

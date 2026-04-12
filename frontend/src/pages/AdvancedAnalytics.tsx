@@ -5,35 +5,48 @@
  * Version: 1.0.0
  */
 
+import type { Data, Layout } from 'plotly.js'
 import React, { useEffect, useState, useMemo } from 'react'
+import Plot from 'react-plotly.js'
 import { analyticsApi, stationsApi } from '../api'
 import type {
-  SpeciesHourBubble,
-  PhenologyCell,
-  ConfidenceScatterPoint,
-  ConfidenceByHour,
-  TemporalDistribution,
-  DawnChorusPoint,
-  WeatherImpact,
   CoOccurrenceCell,
+  ConfidenceByHour,
+  ConfidenceScatterPoint,
+  DawnChorusPoint,
   MonthlyChampion,
+  PhenologyCell,
+  SpeciesHourBubble,
+  TemporalDistribution,
+  WeatherImpact,
 } from '../api/analytics'
 import type { StationResponse } from '../types/api'
-import type { Data, Layout } from 'plotly.js'
-import Plot from 'react-plotly.js'
 
 // Color scale for heatmaps - exponential distribution to show low counts better
 const HEATMAP_COLORSCALE: [number, string][] = [
-  [0, '#F8FAFC'],      // 0%
-  [0.01, '#EEF2FF'],   // 1% - very light
-  [0.05, '#E0E7FF'],   // 5% - light indigo
-  [0.15, '#C7D2FE'],   // 15%
-  [0.30, '#A5B4FC'],   // 30%
-  [0.50, '#818CF8'],   // 50%
-  [0.70, '#6366F1'],   // 70%
-  [0.85, '#4338CA'],   // 85%
-  [1, '#1E1B4B'],      // 100% - darkest
+  [0, '#F8FAFC'], // 0%
+  [0.01, '#EEF2FF'], // 1% - very light
+  [0.05, '#E0E7FF'], // 5% - light indigo
+  [0.15, '#C7D2FE'], // 15%
+  [0.3, '#A5B4FC'], // 30%
+  [0.5, '#818CF8'], // 50%
+  [0.7, '#6366F1'], // 70%
+  [0.85, '#4338CA'], // 85%
+  [1, '#1E1B4B'], // 100% - darkest
 ]
+
+// Gaussian KDE computation — pure, hoisted so useMemo dep list stays stable
+const computeKDE = (data: number[], bandwidth: number, gridPoints: number[]): number[] => {
+  // Gaussian kernel: K(u) = (1/sqrt(2*pi)) * exp(-0.5 * u^2)
+  return gridPoints.map((x) => {
+    let sum = 0
+    for (const xi of data) {
+      const u = (x - xi) / bandwidth
+      sum += Math.exp(-0.5 * u * u)
+    }
+    return sum / (data.length * bandwidth * Math.sqrt(2 * Math.PI))
+  })
+}
 
 const AdvancedAnalytics: React.FC = () => {
   // Data states
@@ -54,12 +67,13 @@ const AdvancedAnalytics: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [selectedStations, setSelectedStations] = useState<number[]>([])
   const [bubbleLimit, setBubbleLimit] = useState(30)
-  const [phenologyYear, setPhenologyYear] = useState(0)  // 0 = Rolling 12 months (default)
+  const [phenologyYear, setPhenologyYear] = useState(0) // 0 = Rolling 12 months (default)
 
   useEffect(() => {
     loadStations()
   }, [])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — loadAllData reads the filter state from closure
   useEffect(() => {
     loadAllData()
   }, [selectedStations, bubbleLimit, phenologyYear])
@@ -78,13 +92,22 @@ const AdvancedAnalytics: React.FC = () => {
       setLoading(true)
       setError(null)
 
-      const stationIds = selectedStations.length > 0
-        ? selectedStations.join(',')
-        : undefined
+      const stationIds = selectedStations.length > 0 ? selectedStations.join(',') : undefined
 
-      const [bubble, phenology, scatter, confHour, temporal, dawnChorus, weather, precip, coOccurrence, champions] = await Promise.all([
+      const [
+        bubble,
+        phenology,
+        scatter,
+        confHour,
+        temporal,
+        dawnChorus,
+        weather,
+        precip,
+        coOccurrence,
+        champions,
+      ] = await Promise.all([
         analyticsApi.getSpeciesHourBubble({
-          limit: bubbleLimit >= 9999 ? 500 : bubbleLimit,  // Cap at 500 for "All"
+          limit: bubbleLimit >= 9999 ? 500 : bubbleLimit, // Cap at 500 for "All"
           months: 3,
           station_ids: stationIds,
         }),
@@ -104,7 +127,7 @@ const AdvancedAnalytics: React.FC = () => {
         analyticsApi.getTemporalDistribution({
           station_ids: stationIds,
           months: 6,
-          limit: 200,  // All species for density plot
+          limit: 200, // All species for density plot
         }),
         analyticsApi.getDawnChorus({
           station_ids: stationIds,
@@ -155,33 +178,35 @@ const AdvancedAnalytics: React.FC = () => {
     }
 
     // Get unique species sorted by total detections
-    const speciesOrder = [...new Set(bubbleData.map(d => d.common_name))]
-      .map(name => {
-        const item = bubbleData.find(d => d.common_name === name)
+    const speciesOrder = [...new Set(bubbleData.map((d) => d.common_name))]
+      .map((name) => {
+        const item = bubbleData.find((d) => d.common_name === name)
         return { name, total: item?.total_detections || 0 }
       })
       .sort((a, b) => b.total - a.total)
-      .map(s => s.name)
+      .map((s) => s.name)
 
     // Build heatmap matrix: species (rows) x hours (columns)
     const hours = Array.from({ length: 24 }, (_, i) => i)
-    const matrix: number[][] = speciesOrder.map(species => {
-      return hours.map(hour => {
-        const cell = bubbleData.find(d => d.common_name === species && d.hour === hour)
+    const matrix: number[][] = speciesOrder.map((species) => {
+      return hours.map((hour) => {
+        const cell = bubbleData.find((d) => d.common_name === species && d.hour === hour)
         return cell?.detection_count || 0
       })
     })
 
     return {
-      data: [{
-        type: 'heatmap',
-        z: matrix,
-        x: hours,
-        y: speciesOrder,
-        colorscale: HEATMAP_COLORSCALE,
-        hovertemplate: '%{y}<br>Hour: %{x}:00<br>Detections: %{z}<extra></extra>',
-        colorbar: { title: { text: 'Detections' } },
-      }],
+      data: [
+        {
+          type: 'heatmap',
+          z: matrix,
+          x: hours,
+          y: speciesOrder,
+          colorscale: HEATMAP_COLORSCALE,
+          hovertemplate: '%{y}<br>Hour: %{x}:00<br>Detections: %{z}<extra></extra>',
+          colorbar: { title: { text: 'Detections' } },
+        },
+      ],
       layout: {
         title: { text: 'Species Activity by Hour of Day', font: { size: 16 } },
         xaxis: {
@@ -208,7 +233,7 @@ const AdvancedAnalytics: React.FC = () => {
     }
 
     // Get unique species
-    const speciesNames = [...new Set(phenologyData.map(d => d.common_name))]
+    const speciesNames = [...new Set(phenologyData.map((d) => d.common_name))]
 
     // Use all 52 weeks instead of just weeks with data
     const allWeeks = Array.from({ length: 52 }, (_, i) => i + 1)
@@ -220,35 +245,42 @@ const AdvancedAnalytics: React.FC = () => {
     const currentWeek = Math.ceil((dayOfYear + startOfYear.getDay()) / 7)
 
     // Build matrix with all 52 weeks (fill missing with 0)
-    const matrix: number[][] = speciesNames.map(species => {
-      return allWeeks.map(week => {
-        const cell = phenologyData.find(d => d.common_name === species && d.week_number === week)
+    const matrix: number[][] = speciesNames.map((species) => {
+      return allWeeks.map((week) => {
+        const cell = phenologyData.find((d) => d.common_name === species && d.week_number === week)
         return cell?.detection_count || 0
       })
     })
 
     // Sort species by total detections
-    const speciesWithTotals = speciesNames.map((name, idx) => ({
-      name,
-      total: matrix[idx].reduce((a, b) => a + b, 0),
-      row: matrix[idx],
-    })).sort((a, b) => b.total - a.total)
+    const speciesWithTotals = speciesNames
+      .map((name, idx) => ({
+        name,
+        total: matrix[idx].reduce((a, b) => a + b, 0),
+        row: matrix[idx],
+      }))
+      .sort((a, b) => b.total - a.total)
 
     // Find the x-axis index for the current week
-    const currentWeekIndex = currentWeek - 1  // 0-indexed
+    const currentWeekIndex = currentWeek - 1 // 0-indexed
 
     return {
-      data: [{
-        type: 'heatmap',
-        z: speciesWithTotals.map(s => s.row),
-        x: allWeeks.map(w => `W${w}`),
-        y: speciesWithTotals.map(s => s.name),
-        colorscale: HEATMAP_COLORSCALE,
-        hovertemplate: '%{y}<br>Week %{x}<br>Detections: %{z}<extra></extra>',
-        colorbar: { title: { text: 'Detections' } },
-      }],
+      data: [
+        {
+          type: 'heatmap',
+          z: speciesWithTotals.map((s) => s.row),
+          x: allWeeks.map((w) => `W${w}`),
+          y: speciesWithTotals.map((s) => s.name),
+          colorscale: HEATMAP_COLORSCALE,
+          hovertemplate: '%{y}<br>Week %{x}<br>Detections: %{z}<extra></extra>',
+          colorbar: { title: { text: 'Detections' } },
+        },
+      ],
       layout: {
-        title: { text: `Phenology Heatmap - ${phenologyYear === 0 ? 'Rolling 12 Months' : phenologyYear}`, font: { size: 16 } },
+        title: {
+          text: `Phenology Heatmap - ${phenologyYear === 0 ? 'Rolling 12 Months' : phenologyYear}`,
+          font: { size: 16 },
+        },
         xaxis: {
           title: { text: 'Week of Year' },
           tickangle: -45,
@@ -261,22 +293,26 @@ const AdvancedAnalytics: React.FC = () => {
         height: Math.max(400, speciesWithTotals.length * 18 + 120),
         margin: { l: 150, r: 80, t: 50, b: 80 },
         // Current week indicator line
-        shapes: [{
-          type: 'line',
-          x0: currentWeekIndex,
-          x1: currentWeekIndex,
-          y0: -0.5,
-          y1: speciesWithTotals.length - 0.5,
-          line: { color: '#FF6B00', width: 3 },
-        }],
-        annotations: [{
-          x: currentWeekIndex,
-          y: -0.08,
-          yref: 'paper',
-          text: 'Now',
-          showarrow: false,
-          font: { color: '#FF6B00', size: 11, weight: 700 },
-        }],
+        shapes: [
+          {
+            type: 'line',
+            x0: currentWeekIndex,
+            x1: currentWeekIndex,
+            y0: -0.5,
+            y1: speciesWithTotals.length - 0.5,
+            line: { color: '#FF6B00', width: 3 },
+          },
+        ],
+        annotations: [
+          {
+            x: currentWeekIndex,
+            y: -0.08,
+            yref: 'paper',
+            text: 'Now',
+            showarrow: false,
+            font: { color: '#FF6B00', size: 11, weight: 700 },
+          },
+        ],
       },
     }
   }, [phenologyData, phenologyYear])
@@ -289,26 +325,53 @@ const AdvancedAnalytics: React.FC = () => {
 
     // Create a color for each species
     const colors = [
-      '#4338CA', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899',
-      '#14B8A6', '#F97316', '#6366F1', '#84CC16', '#06B6D4', '#E11D48',
-      '#7C3AED', '#059669', '#D97706', '#DC2626', '#9333EA', '#DB2777',
-      '#0D9488', '#EA580C', '#4F46E5', '#65A30D', '#0891B2', '#BE123C',
-      '#6D28D9', '#047857', '#B45309', '#B91C1C', '#7E22CE', '#BE185D',
+      '#4338CA',
+      '#10B981',
+      '#F59E0B',
+      '#EF4444',
+      '#8B5CF6',
+      '#EC4899',
+      '#14B8A6',
+      '#F97316',
+      '#6366F1',
+      '#84CC16',
+      '#06B6D4',
+      '#E11D48',
+      '#7C3AED',
+      '#059669',
+      '#D97706',
+      '#DC2626',
+      '#9333EA',
+      '#DB2777',
+      '#0D9488',
+      '#EA580C',
+      '#4F46E5',
+      '#65A30D',
+      '#0891B2',
+      '#BE123C',
+      '#6D28D9',
+      '#047857',
+      '#B45309',
+      '#B91C1C',
+      '#7E22CE',
+      '#BE185D',
     ]
 
     return {
-      data: [{
-        type: 'scatter',
-        mode: 'markers',
-        x: scatterData.map(d => d.total_detections),
-        y: scatterData.map(d => d.avg_confidence),
-        text: scatterData.map(d => d.common_name),
-        marker: {
-          size: 10,
-          color: scatterData.map((_, idx) => colors[idx % colors.length]),
+      data: [
+        {
+          type: 'scatter',
+          mode: 'markers',
+          x: scatterData.map((d) => d.total_detections),
+          y: scatterData.map((d) => d.avg_confidence),
+          text: scatterData.map((d) => d.common_name),
+          marker: {
+            size: 10,
+            color: scatterData.map((_, idx) => colors[idx % colors.length]),
+          },
+          hovertemplate: '%{text}<br>Detections: %{x:,}<br>Avg Confidence: %{y:.2f}<extra></extra>',
         },
-        hovertemplate: '%{text}<br>Detections: %{x:,}<br>Avg Confidence: %{y:.2f}<extra></extra>',
-      }],
+      ],
       layout: {
         title: { text: 'Detection Count vs Average Confidence', font: { size: 16 } },
         xaxis: {
@@ -336,23 +399,25 @@ const AdvancedAnalytics: React.FC = () => {
     const bins = ['0.50-0.60', '0.60-0.70', '0.70-0.80', '0.80-0.90', '0.90-1.00']
 
     // Build matrix
-    const matrix: number[][] = bins.map(bin => {
-      return hours.map(hour => {
-        const cell = confidenceHourData.find(d => d.hour === hour && d.confidence_bin === bin)
+    const matrix: number[][] = bins.map((bin) => {
+      return hours.map((hour) => {
+        const cell = confidenceHourData.find((d) => d.hour === hour && d.confidence_bin === bin)
         return cell?.detection_count || 0
       })
     })
 
     return {
-      data: [{
-        type: 'heatmap',
-        z: matrix,
-        x: hours.map(h => `${h}:00`),
-        y: bins,
-        colorscale: HEATMAP_COLORSCALE,
-        hovertemplate: 'Hour: %{x}<br>Confidence: %{y}<br>Detections: %{z}<extra></extra>',
-        colorbar: { title: { text: 'Detections' } },
-      }],
+      data: [
+        {
+          type: 'heatmap',
+          z: matrix,
+          x: hours.map((h) => `${h}:00`),
+          y: bins,
+          colorscale: HEATMAP_COLORSCALE,
+          hovertemplate: 'Hour: %{x}<br>Confidence: %{y}<br>Detections: %{z}<extra></extra>',
+          colorbar: { title: { text: 'Detections' } },
+        },
+      ],
       layout: {
         title: { text: 'Detection Confidence by Hour of Day', font: { size: 16 } },
         xaxis: {
@@ -377,7 +442,7 @@ const AdvancedAnalytics: React.FC = () => {
 
     // Group by species
     const speciesGroups = new Map<string, TemporalDistribution[]>()
-    temporalData.forEach(d => {
+    temporalData.forEach((d) => {
       if (!speciesGroups.has(d.common_name)) {
         speciesGroups.set(d.common_name, [])
       }
@@ -389,8 +454,8 @@ const AdvancedAnalytics: React.FC = () => {
       type: 'scatter',
       mode: 'lines',
       name,
-      x: data.map(d => d.date),
-      y: data.map(d => d.detection_count),
+      x: data.map((d) => d.date),
+      y: data.map((d) => d.detection_count),
       fill: 'tozeroy',
       opacity: 0.7,
       line: { width: 1 },
@@ -430,15 +495,16 @@ const AdvancedAnalytics: React.FC = () => {
       data: [
         {
           type: 'bar',
-          x: dawnChorusData.map(d => d.minutes_from_sunrise),
-          y: dawnChorusData.map(d => d.detection_count),
+          x: dawnChorusData.map((d) => d.minutes_from_sunrise),
+          y: dawnChorusData.map((d) => d.detection_count),
           marker: {
-            color: dawnChorusData.map(d => d.species_count),
+            color: dawnChorusData.map((d) => d.species_count),
             colorscale: 'YlOrRd',
             showscale: true,
             colorbar: { title: { text: 'Species' } },
           },
-          hovertemplate: '%{x} min from sunrise<br>%{y} detections<br>%{marker.color} species<extra></extra>',
+          hovertemplate:
+            '%{x} min from sunrise<br>%{y} detections<br>%{marker.color} species<extra></extra>',
         },
       ],
       layout: {
@@ -454,23 +520,27 @@ const AdvancedAnalytics: React.FC = () => {
         },
         height: 400,
         margin: { l: 60, r: 80, t: 50, b: 50 },
-        shapes: [{
-          type: 'line',
-          x0: 0,
-          x1: 0,
-          y0: 0,
-          y1: 1,
-          yref: 'paper',
-          line: { color: '#FF6B00', width: 2, dash: 'dash' },
-        }],
-        annotations: [{
-          x: 0,
-          y: 1.05,
-          yref: 'paper',
-          text: 'Sunrise',
-          showarrow: false,
-          font: { color: '#FF6B00', size: 12 },
-        }],
+        shapes: [
+          {
+            type: 'line',
+            x0: 0,
+            x1: 0,
+            y0: 0,
+            y1: 1,
+            yref: 'paper',
+            line: { color: '#FF6B00', width: 2, dash: 'dash' },
+          },
+        ],
+        annotations: [
+          {
+            x: 0,
+            y: 1.05,
+            yref: 'paper',
+            text: 'Sunrise',
+            showarrow: false,
+            font: { color: '#FF6B00', size: 12 },
+          },
+        ],
       },
     }
   }, [dawnChorusData])
@@ -481,26 +551,30 @@ const AdvancedAnalytics: React.FC = () => {
       return { data: [], layout: {} }
     }
 
-    const labels = weatherData.map(d => d.temperature_bin || d.condition || 'Unknown')
-    const avgDetections = weatherData.map(d => d.avg_detections)
-    const observationCounts = weatherData.map(d => d.observation_count)
+    const labels = weatherData.map((d) => d.temperature_bin || d.condition || 'Unknown')
+    const avgDetections = weatherData.map((d) => d.avg_detections)
+    const observationCounts = weatherData.map((d) => d.observation_count)
 
     return {
-      data: [{
-        type: 'bar',
-        x: labels,
-        y: avgDetections,
-        marker: {
-          color: avgDetections,
-          colorscale: 'Blues',
+      data: [
+        {
+          type: 'bar',
+          x: labels,
+          y: avgDetections,
+          marker: {
+            color: avgDetections,
+            colorscale: 'Blues',
+          },
+          text: avgDetections.map(
+            (avg, i) => `${avg.toFixed(0)}<br>(${observationCounts[i]} days)`,
+          ),
+          textposition: 'inside',
+          textangle: 0,
+          textfont: { color: 'white', size: 10 },
+          hovertemplate: '%{x}<br>Avg: %{y:.1f} detections<br>%{customdata} days<extra></extra>',
+          customdata: observationCounts,
         },
-        text: avgDetections.map((avg, i) => `${avg.toFixed(0)}<br>(${observationCounts[i]} days)`),
-        textposition: 'inside',
-        textangle: 0,
-        textfont: { color: 'white', size: 10 },
-        hovertemplate: '%{x}<br>Avg: %{y:.1f} detections<br>%{customdata} days<extra></extra>',
-        customdata: observationCounts,
-      }],
+      ],
       layout: {
         title: { text: 'Average Daily Detections by Temperature Range', font: { size: 14 } },
         xaxis: {
@@ -524,34 +598,38 @@ const AdvancedAnalytics: React.FC = () => {
       return { data: [], layout: {} }
     }
 
-    const labels = precipData.map(d => d.temperature_bin || d.condition || 'Unknown')
-    const avgDetections = precipData.map(d => d.avg_detections)
-    const observationCounts = precipData.map(d => d.observation_count)
+    const labels = precipData.map((d) => d.temperature_bin || d.condition || 'Unknown')
+    const avgDetections = precipData.map((d) => d.avg_detections)
+    const observationCounts = precipData.map((d) => d.observation_count)
 
     // Color map for precipitation categories
     const colorMap: { [key: string]: string } = {
-      'No Precip': '#FCD34D',    // Yellow/sunny
-      'Light Rain': '#93C5FD',   // Light blue
+      'No Precip': '#FCD34D', // Yellow/sunny
+      'Light Rain': '#93C5FD', // Light blue
       'Moderate Rain': '#3B82F6', // Medium blue
-      'Heavy Rain': '#1D4ED8',   // Dark blue
-      'Snow': '#E5E7EB',         // Light gray/white
+      'Heavy Rain': '#1D4ED8', // Dark blue
+      Snow: '#E5E7EB', // Light gray/white
     }
 
     return {
-      data: [{
-        type: 'bar',
-        x: labels,
-        y: avgDetections,
-        marker: {
-          color: labels.map(l => colorMap[l] || '#6B7280'),
+      data: [
+        {
+          type: 'bar',
+          x: labels,
+          y: avgDetections,
+          marker: {
+            color: labels.map((l) => colorMap[l] || '#6B7280'),
+          },
+          text: avgDetections.map(
+            (avg, i) => `${avg.toFixed(0)}<br>(${observationCounts[i]} days)`,
+          ),
+          textposition: 'inside',
+          textangle: 0,
+          textfont: { color: 'white', size: 10 },
+          hovertemplate: '%{x}<br>Avg: %{y:.1f} detections<br>%{customdata} days<extra></extra>',
+          customdata: observationCounts,
         },
-        text: avgDetections.map((avg, i) => `${avg.toFixed(0)}<br>(${observationCounts[i]} days)`),
-        textposition: 'inside',
-        textangle: 0,
-        textfont: { color: 'white', size: 10 },
-        hovertemplate: '%{x}<br>Avg: %{y:.1f} detections<br>%{customdata} days<extra></extra>',
-        customdata: observationCounts,
-      }],
+      ],
       layout: {
         title: { text: 'Average Daily Detections by Precipitation Level', font: { size: 14 } },
         xaxis: {
@@ -576,32 +654,34 @@ const AdvancedAnalytics: React.FC = () => {
     }
 
     // Get unique species names
-    const speciesNames = [...new Set(coOccurrenceData.map(d => d.species_1))]
+    const speciesNames = [...new Set(coOccurrenceData.map((d) => d.species_1))]
 
     // Build matrix
-    const matrix: number[][] = speciesNames.map(sp1 => {
-      return speciesNames.map(sp2 => {
-        const cell = coOccurrenceData.find(d => d.species_1 === sp1 && d.species_2 === sp2)
+    const matrix: number[][] = speciesNames.map((sp1) => {
+      return speciesNames.map((sp2) => {
+        const cell = coOccurrenceData.find((d) => d.species_1 === sp1 && d.species_2 === sp2)
         return cell?.jaccard_index || 0
       })
     })
 
     return {
-      data: [{
-        type: 'heatmap',
-        z: matrix,
-        x: speciesNames,
-        y: speciesNames,
-        colorscale: [
-          [0, '#FFFFFF'],
-          [0.25, '#E0E7FF'],
-          [0.5, '#818CF8'],
-          [0.75, '#4338CA'],
-          [1, '#1E1B4B'],
-        ],
-        hovertemplate: '%{y} & %{x}<br>Jaccard Index: %{z:.3f}<extra></extra>',
-        colorbar: { title: { text: 'Jaccard' } },
-      }],
+      data: [
+        {
+          type: 'heatmap',
+          z: matrix,
+          x: speciesNames,
+          y: speciesNames,
+          colorscale: [
+            [0, '#FFFFFF'],
+            [0.25, '#E0E7FF'],
+            [0.5, '#818CF8'],
+            [0.75, '#4338CA'],
+            [1, '#1E1B4B'],
+          ],
+          hovertemplate: '%{y} & %{x}<br>Jaccard Index: %{z:.3f}<extra></extra>',
+          colorbar: { title: { text: 'Jaccard' } },
+        },
+      ],
       layout: {
         title: { text: 'Species Co-occurrence Matrix', font: { size: 16 } },
         xaxis: {
@@ -616,20 +696,6 @@ const AdvancedAnalytics: React.FC = () => {
       },
     }
   }, [coOccurrenceData])
-
-  // Gaussian KDE computation
-  const computeKDE = (data: number[], bandwidth: number, gridPoints: number[]): number[] => {
-    // Gaussian kernel: K(u) = (1/sqrt(2*pi)) * exp(-0.5 * u^2)
-    return gridPoints.map((x) => {
-      let sum = 0
-      for (const xi of data) {
-        const u = (x - xi) / bandwidth
-        sum += Math.exp(-0.5 * u * u)
-      }
-      return sum / (data.length * bandwidth * Math.sqrt(2 * Math.PI))
-    })
-  }
-
   // Prepare mirrored probability density plot for seasonality
   const seasonalityChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
     if (temporalData.length === 0) {
@@ -675,9 +741,21 @@ const AdvancedAnalytics: React.FC = () => {
 
     // Color palette for species
     const colors = [
-      '#4338CA', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899',
-      '#14B8A6', '#F97316', '#6366F1', '#84CC16', '#06B6D4', '#E11D48',
-      '#7C3AED', '#059669', '#D97706',
+      '#4338CA',
+      '#10B981',
+      '#F59E0B',
+      '#EF4444',
+      '#8B5CF6',
+      '#EC4899',
+      '#14B8A6',
+      '#F97316',
+      '#6366F1',
+      '#84CC16',
+      '#06B6D4',
+      '#E11D48',
+      '#7C3AED',
+      '#059669',
+      '#D97706',
     ]
 
     const traces: Data[] = []
@@ -745,7 +823,7 @@ const AdvancedAnalytics: React.FC = () => {
           tickfont: { size: 10 },
           showgrid: false,
           zeroline: false,
-          autorange: 'reversed',  // Most detected at top
+          autorange: 'reversed', // Most detected at top
         },
         height: Math.max(400, speciesOrdered.length * 60 + 100),
         margin: { l: 150, r: 20, t: 50, b: 50 },
@@ -756,10 +834,8 @@ const AdvancedAnalytics: React.FC = () => {
   }, [temporalData])
 
   const handleStationToggle = (stationId: number) => {
-    setSelectedStations(prev =>
-      prev.includes(stationId)
-        ? prev.filter(id => id !== stationId)
-        : [...prev, stationId]
+    setSelectedStations((prev) =>
+      prev.includes(stationId) ? prev.filter((id) => id !== stationId) : [...prev, stationId],
     )
   }
 
@@ -792,12 +868,12 @@ const AdvancedAnalytics: React.FC = () => {
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex flex-wrap gap-4 items-center">
-          {/* Station Filter */}
+          {/* Station Filter — group of buttons, not a form control */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Stations</label>
+            <span className="block text-sm font-medium text-gray-700 mb-1">Stations</span>
             <div className="flex flex-wrap gap-2">
-              {stations.map(station => (
-                <button
+              {stations.map((station) => (
+                <button type="button"
                   key={station.id}
                   onClick={() => handleStationToggle(station.id)}
                   className={`px-3 py-1 text-sm rounded-full transition-colors ${
@@ -810,7 +886,7 @@ const AdvancedAnalytics: React.FC = () => {
                 </button>
               ))}
               {selectedStations.length > 0 && (
-                <button
+                <button type="button"
                   onClick={() => setSelectedStations([])}
                   className="px-3 py-1 text-sm text-gray-500 hover:text-gray-700"
                 >
@@ -822,10 +898,11 @@ const AdvancedAnalytics: React.FC = () => {
 
           {/* Heatmap Species Limit */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="analytics-species-limit" className="block text-sm font-medium text-gray-700 mb-1">
               Species Limit (Heatmap)
             </label>
             <select
+              id="analytics-species-limit"
               value={bubbleLimit}
               onChange={(e) => setBubbleLimit(Number(e.target.value))}
               className="px-3 py-1 border rounded text-sm"
@@ -840,17 +917,18 @@ const AdvancedAnalytics: React.FC = () => {
 
           {/* Phenology Period */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Phenology Period
-            </label>
+            <label htmlFor="analytics-phenology-period" className="block text-sm font-medium text-gray-700 mb-1">Phenology Period</label>
             <select
+              id="analytics-phenology-period"
               value={phenologyYear}
               onChange={(e) => setPhenologyYear(Number(e.target.value))}
               className="px-3 py-1 border rounded text-sm"
             >
               <option value={0}>Rolling 12 Months</option>
-              {[2024, 2025, 2026].map(year => (
-                <option key={year} value={year}>{year}</option>
+              {[2024, 2025, 2026].map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
               ))}
             </select>
           </div>
@@ -883,7 +961,8 @@ const AdvancedAnalytics: React.FC = () => {
         {/* Phenology Heatmap */}
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-sm text-muted-foreground mb-2">
-            Weekly detection intensity throughout the year. Reveals seasonal patterns and migration timing.
+            Weekly detection intensity throughout the year. Reveals seasonal patterns and migration
+            timing.
           </p>
           {phenologyData.length > 0 ? (
             <Plot
@@ -975,7 +1054,8 @@ const AdvancedAnalytics: React.FC = () => {
         {/* Dawn Chorus - Full Width */}
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-sm text-muted-foreground mb-2">
-            Detection activity relative to sunrise. The dawn chorus phenomenon peaks just before and after sunrise.
+            Detection activity relative to sunrise. The dawn chorus phenomenon peaks just before and
+            after sunrise.
           </p>
           {dawnChorusData.length > 0 ? (
             <Plot
@@ -1039,7 +1119,8 @@ const AdvancedAnalytics: React.FC = () => {
 
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-sm text-muted-foreground mb-2">
-            Species co-occurrence based on Jaccard similarity index. Higher values (darker) indicate species frequently detected on the same days.
+            Species co-occurrence based on Jaccard similarity index. Higher values (darker) indicate
+            species frequently detected on the same days.
           </p>
           {coOccurrenceData.length > 0 ? (
             <Plot
@@ -1064,7 +1145,9 @@ const AdvancedAnalytics: React.FC = () => {
           {/* Species Detection Density */}
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-sm text-muted-foreground mb-2">
-              Mirrored probability density plot showing detection patterns over time. Species ordered by total detections (highest at top). Wider areas indicate more frequent detections.
+              Mirrored probability density plot showing detection patterns over time. Species
+              ordered by total detections (highest at top). Wider areas indicate more frequent
+              detections.
             </p>
             {temporalData.length > 0 ? (
               <div className="overflow-y-auto max-h-[600px]">
@@ -1084,9 +1167,12 @@ const AdvancedAnalytics: React.FC = () => {
 
           {/* Monthly Champions Table */}
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-lg font-semibold mb-2">Monthly Detection Champions (Rolling 12 Months)</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              Monthly Detection Champions (Rolling 12 Months)
+            </h3>
             <p className="text-sm text-muted-foreground mb-4">
-              The most detected species each month over the past 12 months. Shows which birds dominate each season.
+              The most detected species each month over the past 12 months. Shows which birds
+              dominate each season.
             </p>
             {monthlyChampionsData.length > 0 ? (
               <div className="overflow-x-auto">

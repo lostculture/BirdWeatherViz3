@@ -5,13 +5,13 @@
  * Version: 1.0.0
  */
 
-import { apiClient } from './client'
 import type {
   DailyDetectionCount,
-  HourlyDetectionPattern,
-  DetectionResponse,
   DatabaseStats,
+  DetectionResponse,
+  HourlyDetectionPattern,
 } from '../types/api'
+import { apiClient } from './client'
 
 export const detectionsApi = {
   /**
@@ -34,7 +34,7 @@ export const detectionsApi = {
       start_date?: string
       end_date?: string
       station_ids?: string
-    }
+    },
   ): Promise<any[]> => {
     return apiClient.get<any[]>(`/detections/by-species/${speciesId}`, params)
   },

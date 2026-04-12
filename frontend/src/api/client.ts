@@ -30,7 +30,7 @@ class APIClient {
         }
         return config
       },
-      (error) => Promise.reject(error)
+      (error) => Promise.reject(error),
     )
 
     // Response interceptor for error handling
@@ -44,7 +44,7 @@ class APIClient {
           // Don't redirect - let components show password modal
         }
         return Promise.reject(error)
-      }
+      },
     )
   }
 

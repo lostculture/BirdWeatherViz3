@@ -14,7 +14,7 @@
   :root {
     /* Male Indigo Bunting Color Palette */
     --background: 0 0% 100%;
-    --foreground: 222 47% 11%;           /* Wing Edge Dark #0F172A */
+    --foreground: 222 47% 11%; /* Wing Edge Dark #0F172A */
 
     /* Primary: Brilliant Indigo Blue #4169E1 */
     --primary: 225 73% 57%;
@@ -37,11 +37,11 @@
     --radius: 0.5rem;
 
     /* Custom Indigo Bunting colors for direct use */
-    --indigo-brilliant: #4169E1;
-    --indigo-deep: #1E3A8A;
-    --indigo-cerulean: #5B9BD5;
-    --indigo-dark: #0F172A;
-    --indigo-brown: #8B7355;
+    --indigo-brilliant: #4169e1;
+    --indigo-deep: #1e3a8a;
+    --indigo-cerulean: #5b9bd5;
+    --indigo-dark: #0f172a;
+    --indigo-brown: #8b7355;
   }
 
   * {

@@ -5,14 +5,14 @@
  * Version: 1.0.0
  */
 
-import { Routes, Route } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
+import AdvancedAnalytics from './pages/AdvancedAnalytics'
+import Configuration from './pages/Configuration'
 import DailyDetections from './pages/DailyDetections'
 import SpeciesAnalysis from './pages/SpeciesAnalysis'
 import SpeciesDetails from './pages/SpeciesDetails'
 import SpeciesList from './pages/SpeciesList'
 import StationComparison from './pages/StationComparison'
-import AdvancedAnalytics from './pages/AdvancedAnalytics'
-import Configuration from './pages/Configuration'
 
 const AppRoutes = () => {
   return (

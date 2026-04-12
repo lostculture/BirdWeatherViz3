@@ -5,8 +5,8 @@
  * Version: 1.0.0
  */
 
+import type { StationCreate, StationResponse, StationStats, StationUpdate } from '../types/api'
 import { apiClient } from './client'
-import type { StationResponse, StationCreate, StationUpdate, StationStats } from '../types/api'
 
 export const stationsApi = {
   /**
@@ -61,11 +61,13 @@ export const stationsApi = {
   /**
    * Sync detection data from BirdWeather API (intelligent sync)
    */
-  sync: async (stationId: number): Promise<{success: boolean, detections_added: number, message: string}> => {
-    return apiClient.post<{success: boolean, detections_added: number, message: string}>(
+  sync: async (
+    stationId: number,
+  ): Promise<{ success: boolean; detections_added: number; message: string }> => {
+    return apiClient.post<{ success: boolean; detections_added: number; message: string }>(
       `/stations/${stationId}/sync`,
       undefined,
-      { timeout: 300000 }  // 5 minute timeout for intelligent sync
+      { timeout: 300000 }, // 5 minute timeout for intelligent sync
     )
   },
 
@@ -76,14 +78,14 @@ export const stationsApi = {
     success: boolean
     total_detections_added: number
     stations_synced: number
-    details: Array<{station_name: string, detections_added: number, status: string}>
+    details: Array<{ station_name: string; detections_added: number; status: string }>
     weather_synced: boolean
     weather_days_fetched: number
   }> => {
     return apiClient.post(
-      `/stations/sync-all`,
+      '/stations/sync-all',
       undefined,
-      { timeout: 600000 }  // 10 minute timeout for sync all
+      { timeout: 600000 }, // 10 minute timeout for sync all
     )
   },
 
@@ -92,7 +94,7 @@ export const stationsApi = {
    * Returns an async generator that yields progress events.
    */
   syncAllStream: async function* (
-    onProgress?: (event: SyncProgressEvent) => void
+    onProgress?: (event: SyncProgressEvent) => void,
   ): AsyncGenerator<SyncProgressEvent, void, unknown> {
     const response = await fetch('/api/v1/stations/sync-all-stream', {
       method: 'POST',
@@ -156,14 +158,41 @@ export const stationsApi = {
   /**
    * Get species lists for each station (for UpSet plot)
    */
-  getSpeciesByStation: async (): Promise<Record<string, Array<{common_name: string, scientific_name: string, ebird_code?: string, inat_taxon_id?: number | null}>>> => {
-    return apiClient.get<Record<string, Array<{common_name: string, scientific_name: string, ebird_code?: string, inat_taxon_id?: number | null}>>>('/stations/species/by-station')
+  getSpeciesByStation: async (): Promise<
+    Record<
+      string,
+      Array<{
+        common_name: string
+        scientific_name: string
+        ebird_code?: string
+        inat_taxon_id?: number | null
+      }>
+    >
+  > => {
+    return apiClient.get<
+      Record<
+        string,
+        Array<{
+          common_name: string
+          scientific_name: string
+          ebird_code?: string
+          inat_taxon_id?: number | null
+        }>
+      >
+    >('/stations/species/by-station')
   },
 }
 
 // Types for streaming sync
 export interface SyncProgressEvent {
-  type: 'start' | 'progress' | 'station_complete' | 'station_error' | 'weather_complete' | 'weather_error' | 'complete'
+  type:
+    | 'start'
+    | 'progress'
+    | 'station_complete'
+    | 'station_error'
+    | 'weather_complete'
+    | 'weather_error'
+    | 'complete'
   message?: string
   total_stations?: number
   station_index?: number
@@ -175,7 +204,7 @@ export interface SyncProgressEvent {
   success?: boolean
   total_detections_added?: number
   stations_synced?: number
-  details?: Array<{station_name: string, detections_added: number, status: string}>
+  details?: Array<{ station_name: string; detections_added: number; status: string }>
   weather_synced?: boolean
   weather_days_fetched?: number
   days_fetched?: number

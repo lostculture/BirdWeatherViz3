@@ -6,19 +6,19 @@
  * Version: 1.1.0
  */
 
+import type { Data, Layout } from 'plotly.js'
 import React, { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { speciesApi, settingsApi, generateBirdLinks, DEFAULT_BIRD_SOURCES } from '../api'
-import type { SpeciesResponse } from '../types/api'
+import { DEFAULT_BIRD_SOURCES, generateBirdLinks, settingsApi, speciesApi } from '../api'
 import type {
+  ConfidenceByStation,
   HourlyPattern,
   MonthlyPattern,
-  TimelinePoint,
   StationDistribution,
-  ConfidenceByStation,
+  TimelinePoint,
 } from '../api/species'
 import { BarChart, LineChart, PieChart } from '../components/charts'
-import type { Data, Layout } from 'plotly.js'
+import type { SpeciesResponse } from '../types/api'
 
 // Helper to get bird image URL from our API
 const getBirdImageUrl = (scientificName: string, commonName?: string): string => {
@@ -74,7 +74,7 @@ const SpeciesDetails: React.FC = () => {
     }
   }
 
-  // Load species data when selection changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — loadSpeciesData reads timelineMonths from closure
   useEffect(() => {
     if (selectedSpeciesId) {
       loadSpeciesData(selectedSpeciesId)
@@ -91,7 +91,7 @@ const SpeciesDetails: React.FC = () => {
       if (urlSpeciesId) {
         const parsedId = parseInt(urlSpeciesId, 10)
         // Verify the species exists in the list
-        if (list.some(s => s.id === parsedId)) {
+        if (list.some((s) => s.id === parsedId)) {
           setSelectedSpeciesId(parsedId)
         } else if (list.length > 0) {
           // Fallback to first species if URL ID not found
@@ -136,8 +136,9 @@ const SpeciesDetails: React.FC = () => {
       if (species.inat_taxon_id) {
         setInatTaxonId(species.inat_taxon_id)
       } else if (birdInfoSources.includes('inaturalist')) {
-        speciesApi.getInatTaxonId(species.scientific_name)
-          .then(result => {
+        speciesApi
+          .getInatTaxonId(species.scientific_name)
+          .then((result) => {
             if (result.taxon_id) {
               setInatTaxonId(result.taxon_id)
             }
@@ -158,7 +159,9 @@ const SpeciesDetails: React.FC = () => {
     // Convert hour to degrees: hour * 15 + 180 puts 12:00 at top (0°), 6AM at 270°, 6PM at 90°
     const theta = hourlyData.map((d) => (d.hour * 15 + 180) % 360)
     const r = hourlyData.map((d) => d.detection_count)
-    const hoverText = hourlyData.map((d) => `${d.hour.toString().padStart(2, '0')}:00<br>${d.detection_count} detections`)
+    const hoverText = hourlyData.map(
+      (d) => `${d.hour.toString().padStart(2, '0')}:00<br>${d.detection_count} detections`,
+    )
 
     return {
       data: [
@@ -319,10 +322,11 @@ const SpeciesDetails: React.FC = () => {
 
       {/* Species Selector */}
       <div className="bg-white rounded-lg shadow p-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label htmlFor="species-select" className="block text-sm font-medium text-gray-700 mb-2">
           Select Species to Analyze
         </label>
         <select
+          id="species-select"
           value={selectedSpeciesId || ''}
           onChange={(e) => setSelectedSpeciesId(Number(e.target.value))}
           className="w-full md:w-96 p-3 border rounded-lg text-lg focus:ring-2 focus:ring-indigo-brilliant focus:border-indigo-brilliant"
@@ -356,10 +360,16 @@ const SpeciesDetails: React.FC = () => {
                 )}
               </div>
               <div className="flex-1">
-                <h2 className="text-2xl font-bold text-indigo-dark">{selectedSpecies.common_name}</h2>
-                <p className="text-lg text-muted-foreground italic">{selectedSpecies.scientific_name}</p>
+                <h2 className="text-2xl font-bold text-indigo-dark">
+                  {selectedSpecies.common_name}
+                </h2>
+                <p className="text-lg text-muted-foreground italic">
+                  {selectedSpecies.scientific_name}
+                </p>
                 {selectedSpecies.family && (
-                  <p className="text-sm text-muted-foreground mt-1">Family: {selectedSpecies.family}</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Family: {selectedSpecies.family}
+                  </p>
                 )}
                 <div className="mt-4 flex flex-wrap gap-3">
                   {generateBirdLinks(
@@ -367,7 +377,7 @@ const SpeciesDetails: React.FC = () => {
                     selectedSpecies.scientific_name,
                     selectedSpecies.ebird_code,
                     birdInfoSources,
-                    inatTaxonId
+                    inatTaxonId,
                   ).map((link) => (
                     <a
                       key={link.source_id}
@@ -389,9 +399,7 @@ const SpeciesDetails: React.FC = () => {
                   <div className="text-sm text-muted-foreground">Total Detections</div>
                 </div>
                 <div className="text-center p-4 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-indigo-dark">
-                    {stationDist.length}
-                  </div>
+                  <div className="text-2xl font-bold text-indigo-dark">{stationDist.length}</div>
                   <div className="text-sm text-muted-foreground">Stations</div>
                 </div>
               </div>
@@ -470,7 +478,7 @@ const SpeciesDetails: React.FC = () => {
                   { label: '12 Months', value: 12 },
                   { label: 'All Data', value: null },
                 ].map((opt) => (
-                  <button
+                  <button type="button"
                     key={opt.label}
                     onClick={() => setTimelineMonths(opt.value)}
                     className={`px-3 py-1 text-sm rounded ${

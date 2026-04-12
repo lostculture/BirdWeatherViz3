@@ -5,13 +5,13 @@
  * Version: 1.2.0
  */
 
+import type { Data } from 'plotly.js'
 import React, { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { stationsApi } from '../api'
 import { LineChart } from '../components/charts'
 import { StationMap } from '../components/maps'
-import type { StationStats, StationResponse } from '../types/api'
-import type { Data } from 'plotly.js'
+import type { StationResponse, StationStats } from '../types/api'
 
 // Extended station stats with coordinates
 interface StationStatsWithCoords extends StationStats {
@@ -48,7 +48,7 @@ const ExpandableSpeciesList: React.FC<{
 
   return (
     <div className="bg-white rounded-lg shadow">
-      <button
+      <button type="button"
         onClick={() => setExpanded(!expanded)}
         className="w-full p-4 text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
       >
@@ -122,7 +122,7 @@ const StationComparison: React.FC = () => {
         stationsApi.getComparison(),
         stationsApi.getSpeciesByStation(),
         // Get species list to map scientific names to IDs
-        fetch('/api/v1/species/').then(r => r.json()),
+        fetch('/api/v1/species/').then((r) => r.json()),
         // Get station details for coordinates
         stationsApi.getAll(),
       ])
@@ -161,7 +161,8 @@ const StationComparison: React.FC = () => {
     stationNames?: string[]
   } => {
     const stationNames = Object.keys(speciesByStation)
-    if (stationNames.length === 0) return { intersections: [], uniqueByStation: {}, sharedByAll: [] }
+    if (stationNames.length === 0)
+      return { intersections: [], uniqueByStation: {}, sharedByAll: [] }
 
     // Build a map from common_name to SpeciesInfo for quick lookup
     const speciesInfoMap = new Map<string, SpeciesInfo>()
@@ -182,7 +183,7 @@ const StationComparison: React.FC = () => {
     for (const speciesName of allSpeciesNames) {
       const stationsWithSpecies = new Set<string>()
       for (const [stationName, speciesList] of Object.entries(speciesByStation)) {
-        if (speciesList.some(sp => sp.common_name === speciesName)) {
+        if (speciesList.some((sp) => sp.common_name === speciesName)) {
           stationsWithSpecies.add(stationName)
         }
       }
@@ -214,7 +215,7 @@ const StationComparison: React.FC = () => {
       // Convert species names to SpeciesInfo objects
       const speciesInfoList = speciesNames
         .sort()
-        .map(name => speciesInfoMap.get(name)!)
+        .map((name) => speciesInfoMap.get(name)!)
         .filter(Boolean)
       intersections.push({
         label,
@@ -256,9 +257,9 @@ const StationComparison: React.FC = () => {
     const numIntersections = topIntersections.length
 
     // Calculate layout dimensions
-    const barHeight = 0.60  // Portion for intersection bars
-    const matrixHeight = 0.40  // Portion for dot matrix
-    const setBarWidth = 0.28  // Portion for set size bars (increased for labels)
+    const barHeight = 0.6 // Portion for intersection bars
+    const matrixHeight = 0.4 // Portion for dot matrix
+    const setBarWidth = 0.28 // Portion for set size bars (increased for labels)
 
     const traces: Data[] = []
 
@@ -279,8 +280,12 @@ const StationComparison: React.FC = () => {
       textfont: { size: 10 },
       hovertemplate: '%{customdata}<extra></extra>',
       customdata: topIntersections.map((i) => {
-        const stationLabel = i.stations.length === 1 ? i.stations[0] : `${i.stations.length} stations`
-        const speciesNames = i.species.slice(0, 20).map(sp => sp.common_name).join('<br>')
+        const stationLabel =
+          i.stations.length === 1 ? i.stations[0] : `${i.stations.length} stations`
+        const speciesNames = i.species
+          .slice(0, 20)
+          .map((sp) => sp.common_name)
+          .join('<br>')
         const more = i.species.length > 20 ? `<br>... and ${i.species.length - 20} more` : ''
         return `${stationLabel}<br>${speciesNames}${more}`
       }),
@@ -305,7 +310,7 @@ const StationComparison: React.FC = () => {
       type: 'scatter',
       marker: {
         size: 12,
-        color: '#E5E7EB',  // Light gray
+        color: '#E5E7EB', // Light gray
         symbol: 'circle',
       },
       hoverinfo: 'skip',
@@ -331,14 +336,27 @@ const StationComparison: React.FC = () => {
           type: 'scatter',
           marker: {
             size: 14,
-            color: intersection.stations.length === numStations ? COLORS.brilliant :
-                   intersection.stations.length === 1 ? COLORS.cerulean : COLORS.brown,
+            color:
+              intersection.stations.length === numStations
+                ? COLORS.brilliant
+                : intersection.stations.length === 1
+                  ? COLORS.cerulean
+                  : COLORS.brown,
             symbol: 'circle',
           },
           hovertemplate: (() => {
-            const stationLabel = intersection.stations.length === 1 ? intersection.stations[0] : `${intersection.stations.length} stations`
-            const speciesNames = intersection.species.slice(0, 20).map(sp => sp.common_name).join('<br>')
-            const more = intersection.species.length > 20 ? `<br>... and ${intersection.species.length - 20} more` : ''
+            const stationLabel =
+              intersection.stations.length === 1
+                ? intersection.stations[0]
+                : `${intersection.stations.length} stations`
+            const speciesNames = intersection.species
+              .slice(0, 20)
+              .map((sp) => sp.common_name)
+              .join('<br>')
+            const more =
+              intersection.species.length > 20
+                ? `<br>... and ${intersection.species.length - 20} more`
+                : ''
             return `${stationLabel}<br>${speciesNames}${more}<extra></extra>`
           })(),
           xaxis: 'x2',
@@ -389,19 +407,21 @@ const StationComparison: React.FC = () => {
     // Calculate max intersection count and extend range for bar labels
     const maxCount = Math.max(...topIntersections.map((i) => i.count))
     const tickInterval = maxCount > 50 ? 10 : maxCount > 20 ? 5 : maxCount > 10 ? 2 : 1
-    const yAxisMax = Math.ceil(maxCount / tickInterval) * tickInterval + tickInterval  // One tick above max
+    const yAxisMax = Math.ceil(maxCount / tickInterval) * tickInterval + tickInterval // One tick above max
 
     // Create annotations for left-aligned station names (positioned in left margin)
-    const stationAnnotations: Partial<import('plotly.js').Annotations>[] = stationNames.map((name, i) => ({
-      x: -0.17,  // Position in left margin (negative = left of plot area)
-      y: i,
-      xref: 'paper' as const,
-      yref: 'y3' as const,
-      text: name,
-      showarrow: false,
-      xanchor: 'left',
-      font: { size: 11 },
-    }))
+    const stationAnnotations: Partial<import('plotly.js').Annotations>[] = stationNames.map(
+      (name, i) => ({
+        x: -0.17, // Position in left margin (negative = left of plot area)
+        y: i,
+        xref: 'paper' as const,
+        yref: 'y3' as const,
+        text: name,
+        showarrow: false,
+        xanchor: 'left',
+        font: { size: 11 },
+      }),
+    )
 
     const layout: Partial<import('plotly.js').Layout> = {
       grid: {
@@ -424,7 +444,7 @@ const StationComparison: React.FC = () => {
         anchor: 'x',
         title: { text: 'Intersection Size', standoff: 10 },
         side: 'left',
-        range: [0, yAxisMax],  // Extend range to show label above highest bar
+        range: [0, yAxisMax], // Extend range to show label above highest bar
         dtick: tickInterval,
       },
       // Dot matrix (bottom right)
@@ -441,7 +461,7 @@ const StationComparison: React.FC = () => {
         anchor: 'x2',
         tickmode: 'array',
         tickvals: stationNames.map((_, i) => i),
-        ticktext: stationNames.map(() => ''),  // Hide labels (shown on y3)
+        ticktext: stationNames.map(() => ''), // Hide labels (shown on y3)
         showgrid: false,
         zeroline: false,
         autorange: 'reversed',
@@ -460,13 +480,13 @@ const StationComparison: React.FC = () => {
         anchor: 'x3',
         tickmode: 'array',
         tickvals: stationNames.map((_, i) => i),
-        ticktext: stationNames.map(() => ''),  // Hide labels (using annotations instead)
+        ticktext: stationNames.map(() => ''), // Hide labels (using annotations instead)
         showgrid: false,
         zeroline: false,
         autorange: 'reversed',
       },
       height: chartHeight,
-      margin: { l: 220, r: 20, t: 50, b: 50 },  // Room for station names
+      margin: { l: 220, r: 20, t: 50, b: 50 }, // Room for station names
       showlegend: false,
     }
 
@@ -558,12 +578,8 @@ const StationComparison: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       {station.total_detections.toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {station.unique_species}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {station.days_active}
-                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">{station.unique_species}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{station.days_active}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {station.avg_detections_per_day.toFixed(1)}
                     </td>
@@ -596,18 +612,28 @@ const StationComparison: React.FC = () => {
             <h2 className="text-xl font-semibold mb-4">Species Overlap (UpSet Plot)</h2>
             <p className="text-sm text-muted-foreground mb-4">
               Shows how many species are shared between different station combinations.
-              <span className="inline-block ml-2 px-2 py-0.5 text-xs rounded" style={{ backgroundColor: COLORS.brilliant, color: 'white' }}>All Stations</span>
-              <span className="inline-block ml-2 px-2 py-0.5 text-xs rounded" style={{ backgroundColor: COLORS.cerulean, color: 'white' }}>Unique to One</span>
-              <span className="inline-block ml-2 px-2 py-0.5 text-xs rounded" style={{ backgroundColor: COLORS.brown, color: 'white' }}>Some Stations</span>
+              <span
+                className="inline-block ml-2 px-2 py-0.5 text-xs rounded"
+                style={{ backgroundColor: COLORS.brilliant, color: 'white' }}
+              >
+                All Stations
+              </span>
+              <span
+                className="inline-block ml-2 px-2 py-0.5 text-xs rounded"
+                style={{ backgroundColor: COLORS.cerulean, color: 'white' }}
+              >
+                Unique to One
+              </span>
+              <span
+                className="inline-block ml-2 px-2 py-0.5 text-xs rounded"
+                style={{ backgroundColor: COLORS.brown, color: 'white' }}
+              >
+                Some Stations
+              </span>
             </p>
             {(() => {
               const upsetChart = prepareUpsetChart()
-              return (
-                <LineChart
-                  data={upsetChart.data}
-                  layout={upsetChart.layout}
-                />
-              )
+              return <LineChart data={upsetChart.data} layout={upsetChart.layout} />
             })()}
           </div>
 
@@ -618,7 +644,7 @@ const StationComparison: React.FC = () => {
             {/* Shared by All Stations */}
             <ExpandableSpeciesList
               title="Shared by All Stations"
-              subtitle={`Species detected at every station`}
+              subtitle={'Species detected at every station'}
               species={upsetData.sharedByAll}
               speciesIdMap={speciesIdMap}
               defaultExpanded={true}
@@ -631,7 +657,7 @@ const StationComparison: React.FC = () => {
                 <ExpandableSpeciesList
                   key={stationName}
                   title={`Unique to ${stationName}`}
-                  subtitle={`Species only detected at this station`}
+                  subtitle={'Species only detected at this station'}
                   species={uniqueSpecies}
                   speciesIdMap={speciesIdMap}
                 />
@@ -643,9 +669,7 @@ const StationComparison: React.FC = () => {
 
       {stations.length === 0 && stationNames.length === 0 && (
         <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-center text-muted-foreground py-8">
-            No station data available
-          </div>
+          <div className="text-center text-muted-foreground py-8">No station data available</div>
         </div>
       )}
     </div>

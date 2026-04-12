@@ -5,13 +5,13 @@
  * Version: 1.5.0
  */
 
+import type { Data } from 'plotly.js'
 import React, { useEffect, useState, useMemo } from 'react'
-import { speciesApi, analyticsApi } from '../api'
+import { analyticsApi, speciesApi } from '../api'
+import type { MonthlyChampion } from '../api/analytics'
 import { BarChart } from '../components/charts'
 import { useFilters } from '../context/FilterContext'
 import type { FamilyStats, SpeciesResponse } from '../types/api'
-import type { MonthlyChampion } from '../api/analytics'
-import type { Data } from 'plotly.js'
 
 import { Link } from 'react-router-dom'
 
@@ -79,7 +79,7 @@ const SpeciesList: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Reload when filters change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — loadData is closed over the filter values and we want to refetch when any of them change
   useEffect(() => {
     loadData()
     setSelectedFamily(null)
@@ -108,7 +108,9 @@ const SpeciesList: React.FC = () => {
         analyticsApi.getMonthlyChampions({ station_ids: filterParams.station_ids, year: 0 }),
       ])
       setFamilyData(data.sort((a, b) => b.total_detections - a.total_detections))
-      setAllSpecies(speciesList.sort((a, b) => (b.total_detections || 0) - (a.total_detections || 0)))
+      setAllSpecies(
+        speciesList.sort((a, b) => (b.total_detections || 0) - (a.total_detections || 0)),
+      )
       setMonthlyChampions(champions)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
@@ -123,7 +125,9 @@ const SpeciesList: React.FC = () => {
       const species = await speciesApi.getByFamily(familyName, {
         station_ids: getStationIdsParam(),
       })
-      setFamilySpecies(species.sort((a, b) => (b.total_detections || 0) - (a.total_detections || 0)))
+      setFamilySpecies(
+        species.sort((a, b) => (b.total_detections || 0) - (a.total_detections || 0)),
+      )
     } catch (err) {
       console.error('Failed to load family species:', err)
     } finally {
@@ -185,13 +189,20 @@ const SpeciesList: React.FC = () => {
     return allSpecies.filter(
       (sp) =>
         sp.common_name.toLowerCase().includes(query) ||
-        sp.scientific_name.toLowerCase().includes(query)
+        sp.scientific_name.toLowerCase().includes(query),
     )
   }, [allSpecies, searchQuery])
 
   // CSV export function
   const exportCSV = () => {
-    const headers = ['Common Name', 'Scientific Name', 'Family', 'Total Detections', 'First Seen', 'Last Seen']
+    const headers = [
+      'Common Name',
+      'Scientific Name',
+      'Family',
+      'Total Detections',
+      'First Seen',
+      'Last Seen',
+    ]
     const rows = allSpecies.map((sp) => [
       `"${sp.common_name}"`,
       `"${sp.scientific_name}"`,
@@ -255,9 +266,7 @@ const SpeciesList: React.FC = () => {
               }}
             />
           ) : (
-            <div className="text-center text-muted-foreground py-8">
-              No family data available
-            </div>
+            <div className="text-center text-muted-foreground py-8">No family data available</div>
           )}
         </div>
 
@@ -276,9 +285,7 @@ const SpeciesList: React.FC = () => {
               }}
             />
           ) : (
-            <div className="text-center text-muted-foreground py-8">
-              No family data available
-            </div>
+            <div className="text-center text-muted-foreground py-8">No family data available</div>
           )}
         </div>
       </div>
@@ -295,7 +302,8 @@ const SpeciesList: React.FC = () => {
           <option value="">-- Select a family --</option>
           {familyData.map((family) => (
             <option key={family.family} value={family.family}>
-              {family.family} ({family.species_count} species, {family.total_detections.toLocaleString()} detections)
+              {family.family} ({family.species_count} species,{' '}
+              {family.total_detections.toLocaleString()} detections)
             </option>
           ))}
         </select>
@@ -306,7 +314,7 @@ const SpeciesList: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold">{selectedFamily}</h2>
-            <button
+            <button type="button"
               onClick={() => {
                 setSelectedFamily(null)
                 setFamilySpecies([])
@@ -333,13 +341,20 @@ const SpeciesList: React.FC = () => {
             </div>
             <div className="text-center p-4 bg-gray-50 rounded-lg">
               <div className="text-2xl font-bold text-indigo-dark">
-                {Math.round(selectedFamilyStats.total_detections / selectedFamilyStats.species_count).toLocaleString()}
+                {Math.round(
+                  selectedFamilyStats.total_detections / selectedFamilyStats.species_count,
+                ).toLocaleString()}
               </div>
               <div className="text-sm text-muted-foreground">Avg per Species</div>
             </div>
             <div className="text-center p-4 bg-gray-50 rounded-lg">
               <div className="text-2xl font-bold text-indigo-dark">
-                {((selectedFamilyStats.total_detections / familyData.reduce((sum, f) => sum + f.total_detections, 0)) * 100).toFixed(1)}%
+                {(
+                  (selectedFamilyStats.total_detections /
+                    familyData.reduce((sum, f) => sum + f.total_detections, 0)) *
+                  100
+                ).toFixed(1)}
+                %
               </div>
               <div className="text-sm text-muted-foreground">of All Detections</div>
             </div>
@@ -348,9 +363,7 @@ const SpeciesList: React.FC = () => {
           {/* Species Grid */}
           <h3 className="text-lg font-semibold mb-4">Species in {selectedFamily}</h3>
           {loadingSpecies ? (
-            <div className="text-center text-muted-foreground py-8">
-              Loading species...
-            </div>
+            <div className="text-center text-muted-foreground py-8">Loading species...</div>
           ) : familySpecies.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {familySpecies.map((species) => (
@@ -422,7 +435,7 @@ const SpeciesList: React.FC = () => {
               {allSpecies.length} species from {uniqueFamilies} families
             </p>
           </div>
-          <button
+          <button type="button"
             onClick={exportCSV}
             className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
           >

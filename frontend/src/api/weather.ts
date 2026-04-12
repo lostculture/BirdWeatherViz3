@@ -60,7 +60,7 @@ export const weatherApi = {
   /**
    * Get recent weather records
    */
-  getRecent: async (limit: number = 7): Promise<WeatherRecord[]> => {
+  getRecent: async (limit = 7): Promise<WeatherRecord[]> => {
     return apiClient.get<WeatherRecord[]>(`/weather/?limit=${limit}`)
   },
 

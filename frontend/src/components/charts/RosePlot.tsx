@@ -5,10 +5,10 @@
  * Version: 1.0.0
  */
 
+import type { Data } from 'plotly.js'
 import React from 'react'
 import Plot from 'react-plotly.js'
 import type { PlotParams } from 'react-plotly.js'
-import type { Data } from 'plotly.js'
 
 interface RosePlotProps {
   data: PlotParams['data']
@@ -17,17 +17,15 @@ interface RosePlotProps {
   className?: string
 }
 
-const RosePlot: React.FC<RosePlotProps> = ({
-  data,
-  layout = {},
-  config = {},
-  className = '',
-}) => {
+const RosePlot: React.FC<RosePlotProps> = ({ data, layout = {}, config = {}, className = '' }) => {
   // Convert data to polar bar plot format
-  const polarData: Data[] = data.map((trace) => ({
-    ...trace,
-    type: 'barpolar' as const,
-  }) as Data)
+  const polarData: Data[] = data.map(
+    (trace) =>
+      ({
+        ...trace,
+        type: 'barpolar' as const,
+      }) as Data,
+  )
 
   const defaultLayout = {
     autosize: true,

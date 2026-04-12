@@ -6,9 +6,9 @@
  */
 
 import React, { ReactNode, useEffect, useState, useRef } from 'react'
-import Navigation from './Navigation'
-import FilterBar from './FilterBar'
 import { stationsApi } from '../../api'
+import FilterBar from './FilterBar'
+import Navigation from './Navigation'
 
 interface LayoutProps {
   children: ReactNode
@@ -37,7 +37,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           return // No stations to sync
         }
 
-        setSyncStatus({ syncing: true, message: 'Syncing stations (this may take a few minutes)...', error: false })
+        setSyncStatus({
+          syncing: true,
+          message: 'Syncing stations (this may take a few minutes)...',
+          error: false,
+        })
 
         const result = await stationsApi.syncAll()
 
@@ -45,13 +49,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           setSyncStatus({
             syncing: false,
             message: `Synced ${result.total_detections_added} new detections`,
-            error: false
+            error: false,
           })
         } else {
           setSyncStatus({
             syncing: false,
             message: 'All stations up to date',
-            error: false
+            error: false,
           })
         }
 
@@ -68,7 +72,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           message: isTimeout
             ? 'Initial sync taking longer than expected - sync manually from Configuration'
             : 'Sync failed - check Configuration',
-          error: true
+          error: true,
         })
         // Keep error visible for longer
         setTimeout(() => setSyncStatus(null), 15000)
@@ -92,8 +96,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             syncStatus.error
               ? 'bg-red-100 text-red-800'
               : syncStatus.syncing
-              ? 'bg-indigo-cerulean/20 text-indigo-deep'
-              : 'bg-green-100 text-green-800'
+                ? 'bg-indigo-cerulean/20 text-indigo-deep'
+                : 'bg-green-100 text-green-800'
           }`}
         >
           {syncStatus.syncing && (
@@ -101,7 +105,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           )}
           {syncStatus.message}
           {!syncStatus.syncing && (
-            <button
+            <button type="button"
               onClick={() => setSyncStatus(null)}
               className="ml-4 opacity-60 hover:opacity-100"
               aria-label="Dismiss"
@@ -112,18 +116,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       )}
 
-      <main className="flex-1 container mx-auto px-4 py-6">
-        {children}
-      </main>
+      <main className="flex-1 container mx-auto px-4 py-6">{children}</main>
       <footer className="bg-indigo-dark text-white/80 py-4 mt-auto">
         <div className="container mx-auto px-4 text-center text-sm">
-          <p>
-            BirdWeatherViz3 - Next Generation Bird Detection Visualization
-            Platform
-          </p>
-          <p className="mt-1 opacity-75">
-            Powered by BirdWeather API | Version 1.1.0
-          </p>
+          <p>BirdWeatherViz3 - Next Generation Bird Detection Visualization Platform</p>
+          <p className="mt-1 opacity-75">Powered by BirdWeather API | Version 1.1.0</p>
         </div>
       </footer>
     </div>

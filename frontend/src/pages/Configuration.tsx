@@ -6,12 +6,20 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react'
-import { stationsApi, settingsApi, weatherApi, authApi, BIRD_INFO_SOURCES, BIRD_SOURCE_REGIONS, DEFAULT_BIRD_SOURCES } from '../api'
-import PasswordModal from '../components/auth/PasswordModal'
-import ChangePasswordModal from '../components/auth/ChangePasswordModal'
-import type { StationResponse, StationCreate, StationUpdate } from '../types/api'
+import {
+  BIRD_INFO_SOURCES,
+  BIRD_SOURCE_REGIONS,
+  DEFAULT_BIRD_SOURCES,
+  authApi,
+  settingsApi,
+  stationsApi,
+  weatherApi,
+} from '../api'
 import type { TaxonomyStats } from '../api/settings'
-import type { WeatherStats, WeatherStationSetting } from '../api/weather'
+import type { WeatherStationSetting, WeatherStats } from '../api/weather'
+import ChangePasswordModal from '../components/auth/ChangePasswordModal'
+import PasswordModal from '../components/auth/PasswordModal'
+import type { StationCreate, StationResponse, StationUpdate } from '../types/api'
 
 interface StationFormData {
   station_id: string
@@ -35,7 +43,9 @@ const Configuration: React.FC = () => {
   const [syncing, setSyncing] = useState<{ [key: number]: boolean }>({})
   const [syncingAll, setSyncingAll] = useState(false)
   const [syncProgress, setSyncProgress] = useState<string>('')
-  const [syncDetails, setSyncDetails] = useState<Array<{station_name: string, detections_added: number, status: string}>>([])
+  const [syncDetails, setSyncDetails] = useState<
+    Array<{ station_name: string; detections_added: number; status: string }>
+  >([])
   const [showSyncProgress, setShowSyncProgress] = useState(false)
   const [formData, setFormData] = useState<StationFormData>({
     station_id: '',
@@ -108,7 +118,7 @@ const Configuration: React.FC = () => {
       const [tempUnit, windUnit, birdSources] = await Promise.all([
         settingsApi.getTemperatureUnit(),
         settingsApi.getWindSpeedUnit(),
-        settingsApi.getBirdInfoSources()
+        settingsApi.getBirdInfoSources(),
       ])
       setTemperatureUnit(tempUnit)
       setWindSpeedUnit(windUnit)
@@ -123,23 +133,22 @@ const Configuration: React.FC = () => {
       setSavingUnits(true)
       await Promise.all([
         settingsApi.setTemperatureUnit(temperatureUnit),
-        settingsApi.setWindSpeedUnit(windSpeedUnit)
+        settingsApi.setWindSpeedUnit(windSpeedUnit),
       ])
       alert('Display units saved!')
     } catch (err: any) {
-      alert('Failed to save units: ' + (err.message || 'Unknown error'))
+      alert(`Failed to save units: ${err.message || 'Unknown error'}`)
     } finally {
       setSavingUnits(false)
     }
   }
 
   const handleToggleBirdSource = (sourceId: string) => {
-    setBirdInfoSources(prev => {
+    setBirdInfoSources((prev) => {
       if (prev.includes(sourceId)) {
-        return prev.filter(s => s !== sourceId)
-      } else {
-        return [...prev, sourceId]
+        return prev.filter((s) => s !== sourceId)
       }
+      return [...prev, sourceId]
     })
   }
 
@@ -153,7 +162,7 @@ const Configuration: React.FC = () => {
       await settingsApi.setBirdInfoSources(birdInfoSources)
       alert('Bird info sources saved!')
     } catch (err: any) {
-      alert('Failed to save bird sources: ' + (err.message || 'Unknown error'))
+      alert(`Failed to save bird sources: ${err.message || 'Unknown error'}`)
     } finally {
       setSavingBirdSources(false)
     }
@@ -163,7 +172,7 @@ const Configuration: React.FC = () => {
     const presets: Record<string, string[]> = {
       north_america: ['ebird', 'allaboutbirds'],
       uk: ['rspb', 'bto', 'ebird'],
-      global: ['ebird', 'wikipedia', 'xenocanto']
+      global: ['ebird', 'wikipedia', 'xenocanto'],
     }
     const sources = presets[preset]
     setBirdInfoSources(sources)
@@ -172,7 +181,7 @@ const Configuration: React.FC = () => {
       await settingsApi.setBirdInfoSources(sources)
       alert('Preset applied and saved!')
     } catch (err: any) {
-      alert('Failed to save preset: ' + (err.message || 'Unknown error'))
+      alert(`Failed to save preset: ${err.message || 'Unknown error'}`)
     } finally {
       setSavingBirdSources(false)
     }
@@ -204,7 +213,7 @@ const Configuration: React.FC = () => {
     try {
       const [stats, station] = await Promise.all([
         weatherApi.getStats(),
-        weatherApi.getStationSetting()
+        weatherApi.getStationSetting(),
       ])
       setWeatherStats(stats)
       setWeatherStation(station)
@@ -220,7 +229,7 @@ const Configuration: React.FC = () => {
       setWeatherStation(result)
       await loadWeatherData()
     } catch (err: any) {
-      alert('Failed to set weather station: ' + (err.message || 'Unknown error'))
+      alert(`Failed to set weather station: ${err.message || 'Unknown error'}`)
     } finally {
       setSettingWeatherStation(false)
     }
@@ -237,7 +246,7 @@ const Configuration: React.FC = () => {
       alert(result.message)
       await loadWeatherData()
     } catch (err: any) {
-      alert('Failed to sync weather: ' + (err.message || 'Unknown error'))
+      alert(`Failed to sync weather: ${err.message || 'Unknown error'}`)
     } finally {
       setSyncingWeather(false)
     }
@@ -266,7 +275,11 @@ const Configuration: React.FC = () => {
   }
 
   const handleDeleteStation = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this station? All associated detections will be deleted.')) {
+    if (
+      !confirm(
+        'Are you sure you want to delete this station? All associated detections will be deleted.',
+      )
+    ) {
       return
     }
 
@@ -274,7 +287,7 @@ const Configuration: React.FC = () => {
       await stationsApi.delete(id)
       await loadStations()
     } catch (err: any) {
-      alert('Failed to delete station: ' + (err.message || 'Unknown error'))
+      alert(`Failed to delete station: ${err.message || 'Unknown error'}`)
     }
   }
 
@@ -325,7 +338,7 @@ const Configuration: React.FC = () => {
       alert(`Success! ${result.message}`)
       await loadStations()
     } catch (err: any) {
-      alert('Failed to sync: ' + (err.message || 'Unknown error'))
+      alert(`Failed to sync: ${err.message || 'Unknown error'}`)
     } finally {
       setSyncing((prev) => ({ ...prev, [stationId]: false }))
     }
@@ -347,25 +360,35 @@ const Configuration: React.FC = () => {
             setSyncProgress(event.message || 'Processing...')
             break
           case 'station_complete':
-            setSyncProgress(`Completed: ${event.station_name} (+${event.detections_added} detections)`)
-            setSyncDetails(prev => [...prev, {
-              station_name: event.station_name || '',
-              detections_added: event.detections_added || 0,
-              status: event.status || ''
-            }])
+            setSyncProgress(
+              `Completed: ${event.station_name} (+${event.detections_added} detections)`,
+            )
+            setSyncDetails((prev) => [
+              ...prev,
+              {
+                station_name: event.station_name || '',
+                detections_added: event.detections_added || 0,
+                status: event.status || '',
+              },
+            ])
             break
           case 'station_error':
             setSyncProgress(`Error syncing ${event.station_name}`)
-            setSyncDetails(prev => [...prev, {
-              station_name: event.station_name || '',
-              detections_added: 0,
-              status: `error: ${event.error}`
-            }])
+            setSyncDetails((prev) => [
+              ...prev,
+              {
+                station_name: event.station_name || '',
+                detections_added: 0,
+                status: `error: ${event.error}`,
+              },
+            ])
             break
           case 'weather_complete':
-            setSyncProgress(event.days_fetched
-              ? `Weather: ${event.days_fetched} days synced`
-              : 'Weather: Already up to date')
+            setSyncProgress(
+              event.days_fetched
+                ? `Weather: ${event.days_fetched} days synced`
+                : 'Weather: Already up to date',
+            )
             break
           case 'weather_error':
             setSyncProgress(`Weather sync failed: ${event.error}`)
@@ -383,7 +406,6 @@ const Configuration: React.FC = () => {
       setTimeout(() => {
         setShowSyncProgress(false)
       }, 3000)
-
     } catch (err: any) {
       setSyncProgress(`Error: ${err.message || 'Unknown error'}`)
       setTimeout(() => {
@@ -414,7 +436,7 @@ const Configuration: React.FC = () => {
       alert(result.message)
       await loadSettings()
     } catch (err: any) {
-      alert('Failed to upload taxonomy: ' + (err.message || 'Unknown error'))
+      alert(`Failed to upload taxonomy: ${err.message || 'Unknown error'}`)
     } finally {
       setUploadingTaxonomy(false)
       if (taxonomyFileRef.current) {
@@ -433,7 +455,7 @@ const Configuration: React.FC = () => {
       alert(result.message)
       await loadStations() // Refresh to show updated stats
     } catch (err: any) {
-      alert('Failed to upload detections: ' + (err.message || 'Unknown error'))
+      alert(`Failed to upload detections: ${err.message || 'Unknown error'}`)
     } finally {
       setUploadingDetections(false)
       if (detectionsFileRef.current) {
@@ -464,26 +486,26 @@ const Configuration: React.FC = () => {
           <p className="text-gray-600 mt-2">Manage stations, sync data, and configure settings</p>
         </div>
         <div className="flex space-x-3">
-          <button
+          <button type="button"
             onClick={handleSyncAllStations}
             disabled={syncingAll || stations.length === 0}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
           >
             {syncingAll ? 'Syncing All...' : 'Sync All Stations'}
           </button>
-          <button
+          <button type="button"
             onClick={handleAddStation}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium"
           >
             Add Station
           </button>
-          <button
+          <button type="button"
             onClick={() => setShowChangePasswordModal(true)}
             className="bg-amber-100 hover:bg-amber-200 text-amber-800 px-4 py-2 rounded-lg font-medium"
           >
             Change Password
           </button>
-          <button
+          <button type="button"
             onClick={handleLogout}
             className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium"
           >
@@ -501,7 +523,9 @@ const Configuration: React.FC = () => {
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{error}</div>
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          {error}
+        </div>
       )}
 
       {/* Sync Progress Display */}
@@ -509,7 +533,7 @@ const Configuration: React.FC = () => {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center space-x-3">
             {syncingAll && (
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent"></div>
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent" />
             )}
             <div className="flex-1">
               <p className="font-medium text-blue-900">{syncProgress}</p>
@@ -524,7 +548,7 @@ const Configuration: React.FC = () => {
               )}
             </div>
             {!syncingAll && (
-              <button
+              <button type="button"
                 onClick={() => setShowSyncProgress(false)}
                 className="text-blue-600 hover:text-blue-800"
               >
@@ -545,8 +569,9 @@ const Configuration: React.FC = () => {
               </h2>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">BirdWeather Station ID *</label>
+                  <label htmlFor="station-form-id" className="block text-sm font-medium mb-1">BirdWeather Station ID *</label>
                   <input
+                    id="station-form-id"
                     type="text"
                     name="station_id"
                     value={formData.station_id}
@@ -559,8 +584,9 @@ const Configuration: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Station Name *</label>
+                  <label htmlFor="station-form-name" className="block text-sm font-medium mb-1">Station Name *</label>
                   <input
+                    id="station-form-name"
                     type="text"
                     name="name"
                     value={formData.name}
@@ -572,8 +598,9 @@ const Configuration: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Timezone *</label>
+                  <label htmlFor="station-form-timezone" className="block text-sm font-medium mb-1">Timezone *</label>
                   <input
+                    id="station-form-timezone"
                     type="text"
                     name="timezone"
                     value={formData.timezone}
@@ -646,39 +673,44 @@ const Configuration: React.FC = () => {
                       <td className="py-3 px-4 font-mono text-sm">{station.station_id}</td>
                       <td className="py-3 px-4">{station.name}</td>
                       <td className="py-3 px-4 text-sm text-gray-600">
-                        {station.latitude && station.longitude
-                          ? `${station.latitude.toFixed(4)}, ${station.longitude.toFixed(4)}`
-                          : <span className="text-gray-400 italic">Pending sync</span>
-                        }
+                        {station.latitude && station.longitude ? (
+                          `${station.latitude.toFixed(4)}, ${station.longitude.toFixed(4)}`
+                        ) : (
+                          <span className="text-gray-400 italic">Pending sync</span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span
                           className={`inline-block px-2 py-1 text-xs font-semibold rounded ${
-                            station.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                            station.active
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
                           }`}
                         >
                           {station.active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-center text-sm text-gray-600">
-                        {station.last_update ? new Date(station.last_update).toLocaleString() : 'Never'}
+                        {station.last_update
+                          ? new Date(station.last_update).toLocaleString()
+                          : 'Never'}
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex justify-end space-x-2">
-                          <button
+                          <button type="button"
                             onClick={() => handleSyncStation(station.id)}
                             disabled={syncing[station.id]}
                             className="px-3 py-1 text-sm bg-green-100 hover:bg-green-200 text-green-800 rounded font-medium disabled:opacity-50"
                           >
                             {syncing[station.id] ? 'Syncing...' : 'Sync'}
                           </button>
-                          <button
+                          <button type="button"
                             onClick={() => handleEditStation(station)}
                             className="px-3 py-1 text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 rounded font-medium"
                           >
                             Edit
                           </button>
-                          <button
+                          <button type="button"
                             onClick={() => handleDeleteStation(station.id)}
                             className="px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-800 rounded font-medium"
                           >
@@ -700,7 +732,8 @@ const Configuration: React.FC = () => {
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-4">eBird Taxonomy</h2>
           <p className="text-gray-600 mb-4">
-            Upload eBird taxonomy CSV to enable species codes for eBird links and additional taxonomy data.
+            Upload eBird taxonomy CSV to enable species codes for eBird links and additional
+            taxonomy data.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -748,21 +781,29 @@ const Configuration: React.FC = () => {
                   {taxonomyStats.ebird_entries > 0 && (
                     <p>
                       eBird taxonomy entries:{' '}
-                      <span className="font-semibold">{taxonomyStats.ebird_entries.toLocaleString()}</span>
+                      <span className="font-semibold">
+                        {taxonomyStats.ebird_entries.toLocaleString()}
+                      </span>
                     </p>
                   )}
                   <p>
                     Species in database:{' '}
-                    <span className="font-semibold">{taxonomyStats.total_species.toLocaleString()}</span>
+                    <span className="font-semibold">
+                      {taxonomyStats.total_species.toLocaleString()}
+                    </span>
                   </p>
                   <p>
                     With eBird codes:{' '}
-                    <span className="font-semibold">{taxonomyStats.species_with_codes.toLocaleString()}</span>
-                    {' '}({taxonomyStats.coverage_percent}%)
+                    <span className="font-semibold">
+                      {taxonomyStats.species_with_codes.toLocaleString()}
+                    </span>{' '}
+                    ({taxonomyStats.coverage_percent}%)
                   </p>
                   <p>
                     With family data:{' '}
-                    <span className="font-semibold">{taxonomyStats.species_with_families.toLocaleString()}</span>
+                    <span className="font-semibold">
+                      {taxonomyStats.species_with_families.toLocaleString()}
+                    </span>
                   </p>
                   {taxonomyStats.unique_families > 0 && (
                     <p>
@@ -772,8 +813,7 @@ const Configuration: React.FC = () => {
                   )}
                   {taxonomyStats.last_updated && (
                     <p className="text-gray-500">
-                      Last updated:{' '}
-                      {new Date(taxonomyStats.last_updated).toLocaleDateString()}
+                      Last updated: {new Date(taxonomyStats.last_updated).toLocaleDateString()}
                     </p>
                   )}
                 </div>
@@ -790,8 +830,8 @@ const Configuration: React.FC = () => {
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-4">Manual Detection Upload</h2>
           <p className="text-gray-600 mb-4">
-            Upload detection data from a CSV file. The CSV should contain columns for: Timestamp, Common Name,
-            Scientific Name, Latitude, Longitude, Station, and Confidence.
+            Upload detection data from a CSV file. The CSV should contain columns for: Timestamp,
+            Common Name, Scientific Name, Latitude, Longitude, Station, and Confidence.
           </p>
 
           <div className="flex items-center space-x-4">
@@ -803,9 +843,7 @@ const Configuration: React.FC = () => {
               disabled={uploadingDetections || stations.length === 0}
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100 disabled:opacity-50"
             />
-            {uploadingDetections && (
-              <span className="text-sm text-gray-600">Uploading...</span>
-            )}
+            {uploadingDetections && <span className="text-sm text-gray-600">Uploading...</span>}
           </div>
 
           {stations.length === 0 && (
@@ -846,15 +884,14 @@ const Configuration: React.FC = () => {
                 >
                   <option value="">Select a station...</option>
                   {stations
-                    .filter(s => s.latitude && s.longitude && s.latitude !== 0)
-                    .map(s => (
+                    .filter((s) => s.latitude && s.longitude && s.latitude !== 0)
+                    .map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name} ({s.latitude?.toFixed(4)}, {s.longitude?.toFixed(4)})
                       </option>
-                    ))
-                  }
+                    ))}
                 </select>
-                {stations.filter(s => s.latitude && s.latitude !== 0).length === 0 && (
+                {stations.filter((s) => s.latitude && s.latitude !== 0).length === 0 && (
                   <p className="text-sm text-amber-600">
                     No stations have GPS coordinates. Sync detections first.
                   </p>
@@ -862,7 +899,7 @@ const Configuration: React.FC = () => {
               </div>
 
               <div className="mt-4">
-                <button
+                <button type="button"
                   onClick={handleSyncWeather}
                   disabled={syncingWeather || !weatherStation?.station_id}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
@@ -903,9 +940,7 @@ const Configuration: React.FC = () => {
                     </p>
                   )}
                   {weatherStats.weather_station && (
-                    <p className="text-gray-500">
-                      Location: {weatherStats.weather_station}
-                    </p>
+                    <p className="text-gray-500">Location: {weatherStats.weather_station}</p>
                   )}
                 </div>
               ) : (
@@ -979,7 +1014,7 @@ const Configuration: React.FC = () => {
           </div>
 
           <div className="mt-4">
-            <button
+            <button type="button"
               onClick={handleSaveUnits}
               disabled={savingUnits}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
@@ -1003,7 +1038,7 @@ const Configuration: React.FC = () => {
             <div key={region} className="mb-4">
               <h3 className="font-medium mb-2 text-gray-700">{region}</h3>
               <div className="flex flex-wrap gap-3">
-                {sourceIds.map(sourceId => {
+                {sourceIds.map((sourceId) => {
                   const source = BIRD_INFO_SOURCES[sourceId]
                   if (!source) return null
                   return (
@@ -1027,7 +1062,7 @@ const Configuration: React.FC = () => {
           ))}
 
           <div className="flex items-center space-x-3 mt-4">
-            <button
+            <button type="button"
               onClick={handleSaveBirdSources}
               disabled={savingBirdSources}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
@@ -1040,21 +1075,21 @@ const Configuration: React.FC = () => {
           <div className="mt-4 pt-4 border-t">
             <h4 className="text-sm font-medium text-gray-600 mb-2">Quick Presets</h4>
             <div className="flex space-x-2">
-              <button
+              <button type="button"
                 onClick={() => handleBirdSourcePreset('north_america')}
                 disabled={savingBirdSources}
                 className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-medium disabled:opacity-50"
               >
                 North America
               </button>
-              <button
+              <button type="button"
                 onClick={() => handleBirdSourcePreset('uk')}
                 disabled={savingBirdSources}
                 className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-medium disabled:opacity-50"
               >
                 United Kingdom
               </button>
-              <button
+              <button type="button"
                 onClick={() => handleBirdSourcePreset('global')}
                 disabled={savingBirdSources}
                 className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-medium disabled:opacity-50"
@@ -1068,7 +1103,10 @@ const Configuration: React.FC = () => {
           <div className="mt-4 text-sm text-gray-500">
             <span className="font-medium">Currently enabled: </span>
             {birdInfoSources.length > 0
-              ? birdInfoSources.map(id => BIRD_INFO_SOURCES[id]?.name).filter(Boolean).join(', ')
+              ? birdInfoSources
+                  .map((id) => BIRD_INFO_SOURCES[id]?.name)
+                  .filter(Boolean)
+                  .join(', ')
               : 'None selected'}
           </div>
         </div>

@@ -1,0 +1,112 @@
+name: Smoke Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  install-test:
+    name: Install test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Run the same bootstrap test.py that users run locally. We skip the
+      # long-running server startup by setting an env flag the script can
+      # short-circuit on. For the smoke test we only care that dependency
+      # install, venv creation, and bun install all succeed.
+      - name: Backend venv + deps (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          python3 -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install -r backend/requirements.txt
+          backend/.venv/bin/python -c "import fastapi, sqlalchemy, plotly; print('backend deps ok')"
+
+      - name: Backend venv + deps (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m venv backend\.venv
+          backend\.venv\Scripts\python.exe -m pip install --upgrade pip
+          backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+          backend\.venv\Scripts\python.exe -c "import fastapi, sqlalchemy, plotly; print('backend deps ok')"
+
+      - name: Frontend install
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      - name: Frontend lint (Biome)
+        working-directory: frontend
+        run: bun run lint
+
+      - name: Frontend type check
+        working-directory: frontend
+        run: bunx tsc --noEmit
+
+      - name: Frontend build
+        working-directory: frontend
+        run: bun run build
+
+      # Boot the backend briefly so we catch import-time crashes
+      - name: Backend import smoke (Linux/macOS)
+        if: runner.os != 'Windows'
+        working-directory: backend
+        run: ../backend/.venv/bin/python -c "from app.main import app; print('fastapi app imported ok')"
+
+      - name: Backend import smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: backend
+        run: .\.venv\Scripts\python.exe -c "from app.main import app; print('fastapi app imported ok')"
+
+  docker-smoke:
+    name: Docker compose smoke (pre-built images)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start services
+        env:
+          CONFIG_PASSWORD: smoke-test-password
+          JWT_SECRET: smoke-test-jwt-secret-that-is-32-chars-long-ok
+        run: docker compose -f docker-compose.public-test.yml up -d
+
+      - name: Wait for backend health
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8002/api/v1/health; then
+              echo "backend up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "backend did not come up in time"
+          docker compose -f docker-compose.public-test.yml logs
+          exit 1
+
+      - name: Check frontend responds
+        run: curl -fsS http://localhost:3004 > /dev/null && echo "frontend up"
+
+      - name: Shutdown
+        if: always()
+        run: docker compose -f docker-compose.public-test.yml down -v
