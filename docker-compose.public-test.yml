@@ -49,9 +49,7 @@ networks:
     driver: bridge
 
 volumes:
+  # Plain Docker named volume — works on any host with no setup.
+  # If you want a bind mount to a specific host path, override this in a
+  # docker-compose.override.yml next to this file.
   birdweather-public-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${DATA_DIR:-/home/richardj/birdweatherviz3-public-data/data}
