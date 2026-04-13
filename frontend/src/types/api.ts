@@ -92,7 +92,7 @@ export interface FamilyStats {
 // Station Types
 export interface StationResponse {
   id: number
-  station_id: number  // Fixed: should be number, not string
+  station_id: number // Fixed: should be number, not string
   name: string
   latitude?: number
   longitude?: number
@@ -106,9 +106,9 @@ export interface StationResponse {
 }
 
 export interface StationCreate {
-  station_id: number  // Fixed: should be number, not string
+  station_id: number // Fixed: should be number, not string
   name: string
-  api_token?: string  // Optional - only needed for private stations
+  api_token?: string // Optional - only needed for private stations
   latitude?: number
   longitude?: number
   timezone?: string

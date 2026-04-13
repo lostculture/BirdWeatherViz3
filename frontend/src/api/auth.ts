@@ -36,7 +36,7 @@ export const authApi = {
 
     // Store token and expiry
     localStorage.setItem(TOKEN_KEY, response.access_token)
-    const expiryTime = Date.now() + (response.expires_in * 1000)
+    const expiryTime = Date.now() + response.expires_in * 1000
     localStorage.setItem(TOKEN_EXPIRY_KEY, expiryTime.toString())
 
     return response
@@ -96,10 +96,13 @@ export const authApi = {
   /**
    * Change the configuration password.
    */
-  changePassword: async (currentPassword: string, newPassword: string): Promise<ChangePasswordResponse> => {
+  changePassword: async (
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<ChangePasswordResponse> => {
     return apiClient.put<ChangePasswordResponse>('/auth/password', {
       current_password: currentPassword,
-      new_password: newPassword
+      new_password: newPassword,
     })
-  }
+  },
 }

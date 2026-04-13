@@ -75,6 +75,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Frontend uses bun — never commit npm/yarn/pnpm lockfiles alongside bun.lock
+frontend/package-lock.json
+frontend/yarn.lock
+frontend/pnpm-lock.yaml
+
 # Frontend build output
 frontend/dist/
 frontend/build/

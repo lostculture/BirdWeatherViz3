@@ -1,6 +1,6 @@
 # BirdWeatherViz3 🐦
 
-**Version:** 1.4.3
+**Version:** 1.4.4
 
 Next-generation bird detection visualization application built with FastAPI + React, with Docker deployment and optional public access via Cloudflare Tunnel.
 
@@ -87,188 +87,139 @@ BirdWeatherViz3/
 
 ## Quick Start
 
-### Prerequisites
+**Never used a terminal before? Don't worry — follow these steps exactly and you'll be up and running in about 10 minutes.** You don't need to install Python, Node.js, or anything else. The whole app runs inside Docker.
 
-- **For Docker:** Docker 20.10+
-- **For Local Development:** Python 3.11+, Node.js 18+, npm
+### Step 1 — Install Docker Desktop
 
-### Option 1: Automated Test Scripts (Fastest for Testing)
+Docker Desktop is a free app from the company Docker that runs the BirdWeather software for you. Pick the download for your computer:
 
-**Recommended for first-time testing!**
+- **Mac (Apple Silicon — M1/M2/M3/M4):** <https://desktop.docker.com/mac/main/arm64/Docker.dmg>
+- **Mac (Intel):** <https://desktop.docker.com/mac/main/amd64/Docker.dmg>
+- **Windows 10/11:** <https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe>
+- **Linux:** <https://docs.docker.com/desktop/install/linux-install/>
 
-We provide automated test scripts that handle all setup:
+Open the downloaded file and follow the installer. When it's finished, **launch Docker Desktop** and wait until the little whale icon in your menu bar / system tray stops animating — that means Docker is ready.
 
-```bash
-# Cross-platform (Python)
-python test.py
+### Step 2 — Open a Terminal window
 
-# Linux/Mac (Bash)
-./test.sh
+You'll paste one block of commands into this window. It looks scary but it's just a place to type instructions.
 
-# Windows (PowerShell)
-.\test.ps1
-```
+- **Mac:** Press `⌘ + Space`, type `Terminal`, press Enter.
+- **Windows:** Press the Windows key, type `PowerShell`, press Enter.
+- **Linux:** Open the app called `Terminal` from your applications menu.
 
-These scripts automatically:
-- ✓ Check dependencies
-- ✓ Install requirements
-- ✓ Start backend on http://localhost:8000
-- ✓ Start frontend on http://localhost:3000
-- ✓ Open your browser
+### Step 3 — Paste these commands
 
-**See [TESTING.md](TESTING.md) for detailed testing instructions.**
+Copy the block below for your operating system, paste it into the Terminal, and press Enter. You'll be prompted for an admin password for BirdWeather — pick anything you can remember. The rest is automatic.
 
-### Option 2: Docker Compose (Recommended)
+<details open>
+<summary><b>Mac / Linux</b></summary>
 
 ```bash
-# Set required environment variables
-export CONFIG_PASSWORD="your-secure-password"
-export JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-
-# Start backend and frontend services
-docker compose up -d --build
-
-# Access frontend at http://localhost:3001
-# Backend API at http://localhost:8001
-```
-
-The default `docker-compose.yml` runs:
-- **Backend** on port 8001 (FastAPI)
-- **Frontend** on port 3001 (Nginx serving React)
-
-### Option 3: Pre-built Docker Images (No Clone Required)
-
-Run directly from pre-built images on GitHub Container Registry — no need to clone the repo or build anything.
-
-**Images:**
-
-- `ghcr.io/lostculture/birdweatherviz3-backend:latest`
-- `ghcr.io/lostculture/birdweatherviz3-frontend:latest`
-
-Tags available: semver (`1.4.3`, `1.4`), commit SHA, `latest`. Platforms: `linux/amd64` + `linux/arm64`.
-
-**Quick run with `docker-compose.public-test.yml`:**
-
-```bash
-# Download the compose file
 curl -O https://raw.githubusercontent.com/lostculture/BirdWeatherViz3/master/docker-compose.public-test.yml
-
-# Set required environment variables
-export CONFIG_PASSWORD="your-secure-password"
-export JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-
-# Start (pulls images automatically)
+read -s -p "Pick an admin password for BirdWeather: " CONFIG_PASSWORD && echo
+export CONFIG_PASSWORD
+export JWT_SECRET="$(openssl rand -hex 32)"
 docker compose -f docker-compose.public-test.yml up -d
-
-# Access frontend at http://localhost:3004
-# Backend API at http://localhost:8002
 ```
+</details>
 
-**Minimal standalone compose file:**
+<details>
+<summary><b>Windows (PowerShell)</b></summary>
 
-```yaml
-services:
-  backend:
-    image: ghcr.io/lostculture/birdweatherviz3-backend:latest
-    ports:
-      - "8001:8000"
-    volumes:
-      - birdweather-data:/app/data
-    environment:
-      - CONFIG_PASSWORD=${CONFIG_PASSWORD}
-      - JWT_SECRET=${JWT_SECRET}
-      - DATABASE_URL=sqlite:///./data/db/birdweather.db
-    restart: unless-stopped
-
-  frontend:
-    image: ghcr.io/lostculture/birdweatherviz3-frontend:latest
-    ports:
-      - "3001:80"
-    depends_on:
-      - backend
-    restart: unless-stopped
-
-volumes:
-  birdweather-data:
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/lostculture/BirdWeatherViz3/master/docker-compose.public-test.yml -OutFile docker-compose.public-test.yml
+$pwd_secure = Read-Host -AsSecureString "Pick an admin password for BirdWeather"
+$env:CONFIG_PASSWORD = [System.Net.NetworkCredential]::new("", $pwd_secure).Password
+$env:JWT_SECRET = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 64 | ForEach-Object {[char]$_})
+docker compose -f docker-compose.public-test.yml up -d
 ```
+</details>
 
-Data persists in the `birdweather-data` named volume across restarts and upgrades.
+You'll see some download progress and then messages saying containers are "Started". That means it worked.
 
-### Option 4: Public Deployment with Cloudflare Tunnel
+### Step 4 — Open it in your browser
 
-For secure public access without port forwarding:
+Click this link (or copy it into your browser's address bar):
+
+### → <http://localhost:3004>
+
+You'll see the BirdWeather dashboard. Log in with the password you just picked. It will be empty until you add a BirdWeather station in the **Configuration** page.
+
+---
+
+### Stopping, updating, and uninstalling
+
+Back in the same Terminal window, in the same folder:
+
+- **Stop it** (can restart later): `docker compose -f docker-compose.public-test.yml down`
+- **Start it again** later: `docker compose -f docker-compose.public-test.yml up -d`
+- **Update to the latest version:** `docker compose -f docker-compose.public-test.yml pull` then `up -d` again
+- **Uninstall everything including your data:** `docker compose -f docker-compose.public-test.yml down -v`
+
+Your data (stations, detection history, settings) is stored in a Docker volume and survives stops, starts, and upgrades. Only the `down -v` command deletes it.
+
+### Troubleshooting
+
+- **"docker: command not found"** — Docker Desktop isn't installed or isn't running. Open the Docker Desktop app and wait for the whale icon to stop animating, then try again.
+- **Browser shows "This site can't be reached"** — Give it another 30 seconds, the containers are still starting up. If it still fails, run `docker compose -f docker-compose.public-test.yml logs` and copy the output into a GitHub issue.
+- **Something else is using port 3004 or 8002** — Edit `docker-compose.public-test.yml` with any text editor and change the left-hand side of `3004:80` or `8002:8000` to different numbers (e.g. `3999:80`).
+
+---
+
+## Other Install Options
+
+<details>
+<summary><b>Public deployment with Cloudflare Tunnel</b> (no port forwarding)</summary>
 
 ```bash
-# 1. Create .env.public with your secrets
+git clone https://github.com/lostculture/BirdWeatherViz3 && cd BirdWeatherViz3
 cp .env.public.example .env.public
 # Edit .env.public with CONFIG_PASSWORD, JWT_SECRET, CLOUDFLARE_TUNNEL_TOKEN
-
-# 2. Start the public instance
-docker compose -p birdweatherviz3-public -f docker-compose.public.yml --env-file .env.public up -d
-
-# No ports exposed - all traffic goes through Cloudflare
-```
-
-See [CLOUDFLARE_TUNNEL_SETUP.md](CLOUDFLARE_TUNNEL_SETUP.md) for detailed instructions.
-
-### Running Multiple Instances
-
-You can run both local development and public instances simultaneously:
-
-```bash
-# Local development instance
-docker compose -p birdweatherviz3-dev up -d
-
-# Public instance (uses separate data volume)
 docker compose -p birdweatherviz3-public -f docker-compose.public.yml --env-file .env.public up -d
 ```
 
-### Option 5: Manual Local Development
+See [CLOUDFLARE_TUNNEL_SETUP.md](CLOUDFLARE_TUNNEL_SETUP.md) for full setup.
+</details>
 
-For manual setup without the test scripts:
-
-#### Backend Setup
-
-```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements-dev.txt
-
-# Set environment variables
-cp .env.example .env
-# Edit .env with your settings
-
-# Create data directories (required before first run)
-mkdir -p data/db data/logs data/uploads
-
-# Start FastAPI server (database tables are auto-created on startup)
-uvicorn app.main:app --reload --port 8000
-
-# API docs available at http://localhost:8000/docs
-```
-
-#### Frontend Setup
+<details>
+<summary><b>Build locally from source with Docker Compose</b></summary>
 
 ```bash
-cd frontend
-
-# Install dependencies
-npm install
-
-# Set environment variables
-cp .env.example .env
-# Edit .env with API URL
-
-# Start development server
-npm run dev
-
-# Access at http://localhost:5173
+git clone https://github.com/lostculture/BirdWeatherViz3 && cd BirdWeatherViz3
+export CONFIG_PASSWORD="pick-a-password"
+export JWT_SECRET="$(openssl rand -hex 32)"
+docker compose up -d --build
+# Frontend: http://localhost:3001    Backend: http://localhost:8001
 ```
+</details>
+
+<details>
+<summary><b>Local development (contributors)</b></summary>
+
+Requires **Python 3.11+** and **[Bun](https://bun.sh)**. From a fresh clone:
+
+```bash
+python3 test.py       # Cross-platform
+./test.sh             # Linux / macOS
+.\test.ps1            # Windows PowerShell
+```
+
+The test scripts:
+- Create an isolated Python venv at `backend/.venv` (does not touch system Python)
+- Install backend deps into the venv via pip
+- Install frontend deps via `bun install --frozen-lockfile`
+- Start uvicorn on **:8765** and Vite dev server on **:5173**
+- Open your browser to http://localhost:5173
+
+Override the default ports if they clash with something else on your machine:
+
+```bash
+BACKEND_PORT=8766 FRONTEND_PORT=5174 ./test.sh
+```
+
+See [TESTING.md](TESTING.md) for manual setup steps and troubleshooting.
+</details>
 
 ## Configuration
 
@@ -401,12 +352,14 @@ mypy backend/app
 ```
 
 #### Frontend
-```bash
-# Format code
-npm run format
 
-# Lint
-npm run lint
+Frontend uses **[Biome](https://biomejs.dev)** for linting + formatting (one tool, zero config sprawl):
+
+```bash
+cd frontend
+bun run lint            # Check for issues
+bun run format          # Auto-format
+bun run check           # Lint + format + organize imports, with --write
 ```
 
 ## Migration from V1 (Streamlit)

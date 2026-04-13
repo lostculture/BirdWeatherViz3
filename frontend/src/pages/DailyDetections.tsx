@@ -5,22 +5,37 @@
  * Version: 1.2.0
  */
 
+import type { Data, Layout } from 'plotly.js'
 import React, { useEffect, useState, useMemo } from 'react'
-import { detectionsApi, speciesApi, weatherApi, settingsApi, generateBirdLinks, DEFAULT_BIRD_SOURCES } from '../api'
+import Plot from 'react-plotly.js'
+import {
+  DEFAULT_BIRD_SOURCES,
+  detectionsApi,
+  generateBirdLinks,
+  settingsApi,
+  speciesApi,
+  weatherApi,
+} from '../api'
+import type { WeatherRecord } from '../api/weather'
 import { LineChart } from '../components/charts'
 import { useFilters } from '../context/FilterContext'
-import type { DailyDetectionCount, NewSpeciesThisWeek, DatabaseStats } from '../types/api'
-import type { WeatherRecord } from '../api/weather'
-import type { Data, Layout } from 'plotly.js'
-import Plot from 'react-plotly.js'
+import type { DailyDetectionCount, DatabaseStats, NewSpeciesThisWeek } from '../types/api'
 
 // Threshold for switching to small multiples
 const SPARKLINE_THRESHOLD = 3
 
 // Indigo color palette for charts
 const CHART_COLORS = [
-  '#4169E1', '#1E3A8A', '#5B9BD5', '#8B7355', '#0F172A',
-  '#6366F1', '#818CF8', '#4338CA', '#A5B4FC', '#7C3AED',
+  '#4169E1',
+  '#1E3A8A',
+  '#5B9BD5',
+  '#8B7355',
+  '#0F172A',
+  '#6366F1',
+  '#818CF8',
+  '#4338CA',
+  '#A5B4FC',
+  '#7C3AED',
 ]
 
 // Helper to get bird image URL from our API
@@ -60,9 +75,7 @@ const SpeciesCard: React.FC<{
       </div>
       <div className="p-4">
         <div className="font-semibold text-lg">{species.common_name}</div>
-        <div className="text-sm text-muted-foreground italic">
-          {species.scientific_name}
-        </div>
+        <div className="text-sm text-muted-foreground italic">{species.scientific_name}</div>
         <div className="mt-2 text-sm">
           <span className="text-muted-foreground">First this week: </span>
           {new Date(species.first_detection_date).toLocaleDateString()}
@@ -106,7 +119,7 @@ const DailyDetections: React.FC = () => {
   const [birdInfoSources, setBirdInfoSources] = useState<string[]>(DEFAULT_BIRD_SOURCES)
 
   // Temperature conversion helpers
-  const toMetricTemp = (f: number) => Math.round((f - 32) * 5 / 9)
+  const toMetricTemp = (f: number) => Math.round(((f - 32) * 5) / 9)
   const formatTemp = (f: number | null) => {
     if (f === null) return '--'
     return temperatureUnit === 'metric' ? `${toMetricTemp(f)}°C` : `${Math.round(f)}°F`
@@ -119,7 +132,7 @@ const DailyDetections: React.FC = () => {
     return windSpeedUnit === 'metric' ? `${toMetricWind(mph)} km/h` : `${Math.round(mph)} mph`
   }
 
-  // Reload data when filters change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — loadData is closed over the filter values and we want to refetch when any of them change
   useEffect(() => {
     loadData()
   }, [startDate, endDate, getStationIdsParam()])
@@ -135,7 +148,7 @@ const DailyDetections: React.FC = () => {
       const [tempUnit, windUnit, birdSources] = await Promise.all([
         settingsApi.getTemperatureUnit(),
         settingsApi.getWindSpeedUnit(),
-        settingsApi.getBirdInfoSources()
+        settingsApi.getBirdInfoSources(),
       ])
       setTemperatureUnit(tempUnit)
       setWindSpeedUnit(windUnit)
@@ -350,7 +363,9 @@ const DailyDetections: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white rounded-lg shadow p-6 border-t-4 border-indigo-brilliant">
             <div className="text-sm text-muted-foreground">Total Detections</div>
-            <div className="text-3xl font-bold mt-2 text-indigo-dark">{stats.total_detections.toLocaleString()}</div>
+            <div className="text-3xl font-bold mt-2 text-indigo-dark">
+              {stats.total_detections.toLocaleString()}
+            </div>
           </div>
           <div className="bg-white rounded-lg shadow p-6 border-t-4 border-indigo-cerulean">
             <div className="text-sm text-muted-foreground">Unique Species</div>
@@ -377,19 +392,14 @@ const DailyDetections: React.FC = () => {
               <div className="text-sm opacity-80">
                 Weather for {new Date(weather.weather_date).toLocaleDateString()}
               </div>
-              <div className="text-2xl font-bold mt-1">
-                {weather.weather_description || 'N/A'}
-              </div>
+              <div className="text-2xl font-bold mt-1">{weather.weather_description || 'N/A'}</div>
             </div>
             <div className="text-right">
-              <div className="text-4xl font-bold">
-                {formatTemp(weather.temp_avg)}
-              </div>
+              <div className="text-4xl font-bold">{formatTemp(weather.temp_avg)}</div>
               <div className="text-sm opacity-80">
                 {weather.temp_min !== null && weather.temp_max !== null
                   ? `${temperatureUnit === 'metric' ? toMetricTemp(weather.temp_min) : Math.round(weather.temp_min)}° / ${temperatureUnit === 'metric' ? toMetricTemp(weather.temp_max) : Math.round(weather.temp_max)}°`
-                  : ''
-                }
+                  : ''}
               </div>
             </div>
           </div>
@@ -404,7 +414,9 @@ const DailyDetections: React.FC = () => {
             </div>
             <div className="text-center">
               <div className="text-sm opacity-80">Humidity</div>
-              <div className="font-semibold">{weather.humidity !== null ? `${Math.round(weather.humidity)}%` : '--'}</div>
+              <div className="font-semibold">
+                {weather.humidity !== null ? `${Math.round(weather.humidity)}%` : '--'}
+              </div>
             </div>
             <div className="text-center">
               <div className="text-sm opacity-80">Wind</div>
@@ -419,7 +431,8 @@ const DailyDetections: React.FC = () => {
         <h2 className="text-xl font-semibold mb-4">Daily Detection Trends</h2>
         {stationCount > SPARKLINE_THRESHOLD && (
           <p className="text-sm text-muted-foreground mb-4">
-            Using small multiples view for {stationCount} stations (threshold: {SPARKLINE_THRESHOLD})
+            Using small multiples view for {stationCount} stations (threshold: {SPARKLINE_THRESHOLD}
+            )
           </p>
         )}
         {dailyData.length > 0 ? (
@@ -442,9 +455,7 @@ const DailyDetections: React.FC = () => {
             />
           )
         ) : (
-          <div className="text-center text-muted-foreground py-8">
-            No detection data available
-          </div>
+          <div className="text-center text-muted-foreground py-8">No detection data available</div>
         )}
       </div>
 
@@ -461,7 +472,7 @@ const DailyDetections: React.FC = () => {
                 species.common_name,
                 species.scientific_name,
                 species.ebird_code,
-                birdInfoSources
+                birdInfoSources,
               )
               return (
                 <SpeciesCard
@@ -473,9 +484,7 @@ const DailyDetections: React.FC = () => {
             })}
           </div>
         ) : (
-          <div className="text-center text-muted-foreground py-8">
-            No new species this week
-          </div>
+          <div className="text-center text-muted-foreground py-8">No new species this week</div>
         )}
       </div>
     </div>

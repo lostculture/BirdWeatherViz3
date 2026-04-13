@@ -5,10 +5,10 @@
  * Version: 1.0.0
  */
 
+import type { Data } from 'plotly.js'
 import React from 'react'
 import Plot from 'react-plotly.js'
 import type { PlotParams } from 'react-plotly.js'
-import type { Data } from 'plotly.js'
 
 interface BarChartProps {
   data: PlotParams['data']
@@ -26,11 +26,14 @@ const BarChart: React.FC<BarChartProps> = ({
   className = '',
 }) => {
   // Apply orientation to all traces
-  const orientedData: Data[] = data.map((trace) => ({
-    ...trace,
-    type: 'bar' as const,
-    orientation,
-  }) as Data)
+  const orientedData: Data[] = data.map(
+    (trace) =>
+      ({
+        ...trace,
+        type: 'bar' as const,
+        orientation,
+      }) as Data,
+  )
 
   const defaultLayout: Partial<PlotParams['layout']> = {
     autosize: true,

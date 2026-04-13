@@ -48,8 +48,9 @@ const FilterBar: React.FC = () => {
         <div className="flex flex-wrap items-center gap-4">
           {/* Date Range Filters */}
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-600">From:</label>
+            <label htmlFor="filter-from-date" className="text-sm font-medium text-gray-600">From:</label>
             <input
+              id="filter-from-date"
               type="date"
               value={startDate || ''}
               onChange={(e) => setDateRange(e.target.value || null, endDate)}
@@ -57,8 +58,9 @@ const FilterBar: React.FC = () => {
             />
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-600">To:</label>
+            <label htmlFor="filter-to-date" className="text-sm font-medium text-gray-600">To:</label>
             <input
+              id="filter-to-date"
               type="date"
               value={endDate || ''}
               onChange={(e) => setDateRange(startDate, e.target.value || null)}
@@ -69,12 +71,12 @@ const FilterBar: React.FC = () => {
           {/* Separator */}
           <div className="h-6 w-px bg-gray-300" />
 
-          {/* Station Filters */}
+          {/* Station Filters — not a form control, use a plain text span */}
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-600">Stations:</label>
+            <span className="text-sm font-medium text-gray-600">Stations:</span>
             <div className="flex flex-wrap gap-1">
               {stations.map((station) => (
-                <button
+                <button type="button"
                   key={station.id}
                   onClick={() => handleStationToggle(station.id)}
                   className={`px-2 py-1 text-xs rounded transition-colors ${
@@ -87,7 +89,7 @@ const FilterBar: React.FC = () => {
                 </button>
               ))}
               {stations.length > 1 && (
-                <button
+                <button type="button"
                   onClick={handleSelectAllStations}
                   className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 hover:bg-gray-200 ml-1"
                 >
@@ -101,7 +103,7 @@ const FilterBar: React.FC = () => {
           {hasActiveFilters && (
             <>
               <div className="h-6 w-px bg-gray-300" />
-              <button
+              <button type="button"
                 onClick={clearFilters}
                 className="px-3 py-1 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
               >
@@ -111,11 +113,7 @@ const FilterBar: React.FC = () => {
           )}
 
           {/* Active Filter Indicator */}
-          {hasActiveFilters && (
-            <span className="text-xs text-gray-500 italic">
-              Filters active
-            </span>
-          )}
+          {hasActiveFilters && <span className="text-xs text-gray-500 italic">Filters active</span>}
         </div>
       </div>
     </div>

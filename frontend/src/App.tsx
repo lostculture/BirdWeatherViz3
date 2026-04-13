@@ -6,9 +6,9 @@
  */
 
 import { BrowserRouter } from 'react-router-dom'
-import AppRoutes from './routes'
 import Layout from './components/layout/Layout'
 import { FilterProvider } from './context/FilterContext'
+import AppRoutes from './routes'
 
 function App() {
   return (

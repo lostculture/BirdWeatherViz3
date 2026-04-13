@@ -1,0 +1,155 @@
+name: Smoke Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  # Fast failure signal — lint + type check before we fire up OS matrix installs.
+  lint:
+    name: Lint + type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install frontend deps
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+      - name: Biome lint
+        working-directory: frontend
+        run: bun run lint
+      - name: TypeScript check
+        working-directory: frontend
+        run: bunx tsc --noEmit
+
+  security-audit:
+    name: Security audit (deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # --- Backend (pip-audit) ---------------------------------------------------
+      - name: Install pip-audit
+        run: python -m pip install --quiet pip-audit
+
+      - name: Backend dependency audit
+        run: pip-audit -r backend/requirements.txt
+
+      # --- Frontend (bun audit) --------------------------------------------------
+      - name: Install frontend deps
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      # Hard gate on critical only. All currently-known high/moderate issues
+      # are in dev-only transitive deps (vite/vitest/tailwind/plotly build
+      # tooling) that never ship to users, so gating on them would block the
+      # PR on upstream cadence. Full audit runs as an informational step below.
+      - name: Frontend dependency audit (block on critical)
+        working-directory: frontend
+        run: bun audit --audit-level=critical
+
+      - name: Frontend dependency audit (full report, informational)
+        if: always()
+        working-directory: frontend
+        run: bun audit || true
+
+  install-test:
+    name: Install test (${{ matrix.os }})
+    needs: [lint]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Backend venv + deps (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          python3 -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install -r backend/requirements.txt
+          backend/.venv/bin/python -c "import fastapi, sqlalchemy, plotly; print('backend deps ok')"
+
+      - name: Backend venv + deps (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m venv backend\.venv
+          backend\.venv\Scripts\python.exe -m pip install --upgrade pip
+          backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+          backend\.venv\Scripts\python.exe -c "import fastapi, sqlalchemy, plotly; print('backend deps ok')"
+
+      - name: Frontend install
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      - name: Frontend build
+        working-directory: frontend
+        run: bun run build
+
+      - name: Backend import smoke (Linux/macOS)
+        if: runner.os != 'Windows'
+        working-directory: backend
+        run: ../backend/.venv/bin/python -c "from app.main import app; print('fastapi app imported ok')"
+
+      - name: Backend import smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: backend
+        run: .\.venv\Scripts\python.exe -c "from app.main import app; print('fastapi app imported ok')"
+
+  docker-smoke:
+    name: Docker compose smoke (pre-built images)
+    runs-on: ubuntu-latest
+    # Hoisted to job level so the `down` cleanup step can also interpolate
+    # the compose file's ${CONFIG_PASSWORD:?...} checks when it runs.
+    env:
+      CONFIG_PASSWORD: smoke-test-password
+      JWT_SECRET: smoke-test-jwt-secret-that-is-32-chars-long-ok
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start services
+        run: docker compose -f docker-compose.public-test.yml up -d
+
+      - name: Wait for backend health
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8002/api/v1/health; then
+              echo "backend up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "backend did not come up in time"
+          docker compose -f docker-compose.public-test.yml logs
+          exit 1
+
+      - name: Check frontend responds
+        run: curl -fsS http://localhost:3004 > /dev/null && echo "frontend up"
+
+      - name: Shutdown
+        if: always()
+        run: docker compose -f docker-compose.public-test.yml down -v

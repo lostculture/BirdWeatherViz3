@@ -11,5 +11,11 @@ export { analyticsApi } from './analytics'
 export { detectionsApi } from './detections'
 export { speciesApi } from './species'
 export { stationsApi } from './stations'
-export { settingsApi, BIRD_INFO_SOURCES, BIRD_SOURCE_REGIONS, DEFAULT_BIRD_SOURCES, generateBirdLinks } from './settings'
+export {
+  settingsApi,
+  BIRD_INFO_SOURCES,
+  BIRD_SOURCE_REGIONS,
+  DEFAULT_BIRD_SOURCES,
+  generateBirdLinks,
+} from './settings'
 export { weatherApi } from './weather'

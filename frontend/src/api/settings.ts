@@ -55,56 +55,56 @@ export const BIRD_INFO_SOURCES: Record<string, BirdInfoSource> = {
     id: 'ebird',
     name: 'eBird',
     region: 'Global',
-    description: 'Cornell Lab - Global bird observations and data'
+    description: 'Cornell Lab - Global bird observations and data',
   },
   allaboutbirds: {
     id: 'allaboutbirds',
     name: 'All About Birds',
     region: 'North America',
-    description: 'Cornell Lab - Bird guide for North America'
+    description: 'Cornell Lab - Bird guide for North America',
   },
   audubon: {
     id: 'audubon',
     name: 'Audubon',
     region: 'North America',
-    description: 'Audubon Society field guide'
+    description: 'Audubon Society field guide',
   },
   rspb: {
     id: 'rspb',
     name: 'RSPB',
     region: 'United Kingdom',
-    description: 'Royal Society for the Protection of Birds (UK)'
+    description: 'Royal Society for the Protection of Birds (UK)',
   },
   bto: {
     id: 'bto',
     name: 'BTO BirdFacts',
     region: 'United Kingdom',
-    description: 'British Trust for Ornithology'
+    description: 'British Trust for Ornithology',
   },
   xenocanto: {
     id: 'xenocanto',
     name: 'Xeno-canto',
     region: 'Global',
-    description: 'Bird sound recordings from around the world'
+    description: 'Bird sound recordings from around the world',
   },
   wikipedia: {
     id: 'wikipedia',
     name: 'Wikipedia',
     region: 'Global',
-    description: 'Wikipedia article'
+    description: 'Wikipedia article',
   },
   inaturalist: {
     id: 'inaturalist',
     name: 'iNat',
     region: 'Global',
-    description: 'iNaturalist - Community-driven species observations'
-  }
+    description: 'iNaturalist - Community-driven species observations',
+  },
 }
 
 export const BIRD_SOURCE_REGIONS: Record<string, string[]> = {
   'North America': ['ebird', 'allaboutbirds', 'audubon'],
   'United Kingdom': ['rspb', 'bto'],
-  'Global': ['xenocanto', 'wikipedia', 'inaturalist']
+  Global: ['xenocanto', 'wikipedia', 'inaturalist'],
 }
 
 export const DEFAULT_BIRD_SOURCES = ['ebird', 'wikipedia']
@@ -127,7 +127,12 @@ export const settingsApi = {
   /**
    * Update or create a setting
    */
-  update: async (key: string, value: string, dataType?: string, description?: string): Promise<Setting> => {
+  update: async (
+    key: string,
+    value: string,
+    dataType?: string,
+    description?: string,
+  ): Promise<Setting> => {
     return apiClient.put<Setting>(`/settings/${key}`, {
       value,
       data_type: dataType || 'str',
@@ -161,7 +166,7 @@ export const settingsApi = {
           ...(token && { Authorization: `Bearer ${token}` }),
         },
         timeout: 180000, // 3 minute timeout for large files
-      }
+      },
     )
 
     return response.data
@@ -192,7 +197,7 @@ export const settingsApi = {
           ...(token && { Authorization: `Bearer ${token}` }),
         },
         timeout: 600000, // 10 minute timeout for large files
-      }
+      },
     )
 
     return response.data
@@ -205,7 +210,10 @@ export const settingsApi = {
     try {
       const setting = await apiClient.get<Setting>('/settings/bird_info_sources')
       if (setting.value) {
-        return setting.value.split(',').map(s => s.trim()).filter(s => s)
+        return setting.value
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s)
       }
     } catch (err) {
       // Setting doesn't exist yet, use defaults
@@ -281,7 +289,7 @@ export function generateBirdLinks(
   scientificName: string,
   ebirdCode: string | null | undefined,
   enabledSources: string[],
-  inatTaxonId?: number | null
+  inatTaxonId?: number | null,
 ): Array<{ name: string; url: string; source_id: string }> {
   const links: Array<{ name: string; url: string; source_id: string }> = []
 
@@ -299,12 +307,30 @@ export function generateBirdLinks(
 
   const urlPatterns: Record<string, { pattern: string; requires: string }> = {
     ebird: { pattern: `https://ebird.org/species/${ebirdCode || ''}`, requires: 'ebird_code' },
-    allaboutbirds: { pattern: `https://www.allaboutbirds.org/guide/${commonNameUnderscore}/overview`, requires: 'common_name' },
-    audubon: { pattern: `https://www.audubon.org/field-guide/bird/${commonNameHyphenLower}`, requires: 'common_name' },
-    rspb: { pattern: `https://www.rspb.org.uk/birds-and-wildlife/${commonNameHyphenLower}`, requires: 'common_name' },
-    bto: { pattern: `https://www.bto.org/understanding-birds/birdfacts/${commonNameHyphenLower}`, requires: 'common_name' },
-    xenocanto: { pattern: `https://xeno-canto.org/species/${scientificNameHyphenLower}`, requires: 'scientific_name' },
-    wikipedia: { pattern: `https://en.wikipedia.org/wiki/${commonNameUnderscore}`, requires: 'common_name' },
+    allaboutbirds: {
+      pattern: `https://www.allaboutbirds.org/guide/${commonNameUnderscore}/overview`,
+      requires: 'common_name',
+    },
+    audubon: {
+      pattern: `https://www.audubon.org/field-guide/bird/${commonNameHyphenLower}`,
+      requires: 'common_name',
+    },
+    rspb: {
+      pattern: `https://www.rspb.org.uk/birds-and-wildlife/${commonNameHyphenLower}`,
+      requires: 'common_name',
+    },
+    bto: {
+      pattern: `https://www.bto.org/understanding-birds/birdfacts/${commonNameHyphenLower}`,
+      requires: 'common_name',
+    },
+    xenocanto: {
+      pattern: `https://xeno-canto.org/species/${scientificNameHyphenLower}`,
+      requires: 'scientific_name',
+    },
+    wikipedia: {
+      pattern: `https://en.wikipedia.org/wiki/${commonNameUnderscore}`,
+      requires: 'common_name',
+    },
     inaturalist: { pattern: inatUrl, requires: 'scientific_name' },
   }
 
@@ -319,7 +345,7 @@ export function generateBirdLinks(
     links.push({
       name: source.name,
       url: urlInfo.pattern,
-      source_id: sourceId
+      source_id: sourceId,
     })
   }
 

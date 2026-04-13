@@ -5,9 +5,9 @@
  * Version: 1.0.0
  */
 
-import React, { useEffect } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
+import React, { useEffect } from 'react'
+import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { StationStats } from '../../types/api'
 
@@ -33,13 +33,11 @@ const FitBounds: React.FC<{ stations: StationWithCoords[] }> = ({ stations }) =>
   const map = useMap()
 
   useEffect(() => {
-    const stationsWithCoords = stations.filter(
-      (s) => s.latitude != null && s.longitude != null
-    )
+    const stationsWithCoords = stations.filter((s) => s.latitude != null && s.longitude != null)
 
     if (stationsWithCoords.length > 0) {
       const bounds = L.latLngBounds(
-        stationsWithCoords.map((s) => [s.latitude!, s.longitude!] as [number, number])
+        stationsWithCoords.map((s) => [s.latitude!, s.longitude!] as [number, number]),
       )
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 })
     }
@@ -50,9 +48,7 @@ const FitBounds: React.FC<{ stations: StationWithCoords[] }> = ({ stations }) =>
 
 const StationMap: React.FC<StationMapProps> = ({ stations }) => {
   // Filter stations with valid coordinates
-  const stationsWithCoords = stations.filter(
-    (s) => s.latitude != null && s.longitude != null
-  )
+  const stationsWithCoords = stations.filter((s) => s.latitude != null && s.longitude != null)
 
   if (stationsWithCoords.length === 0) {
     return (
@@ -82,10 +78,7 @@ const StationMap: React.FC<StationMapProps> = ({ stations }) => {
         />
         <FitBounds stations={stationsWithCoords} />
         {stationsWithCoords.map((station) => (
-          <Marker
-            key={station.station_id}
-            position={[station.latitude!, station.longitude!]}
-          >
+          <Marker key={station.station_id} position={[station.latitude!, station.longitude!]}>
             <Popup>
               <div className="text-sm">
                 <a

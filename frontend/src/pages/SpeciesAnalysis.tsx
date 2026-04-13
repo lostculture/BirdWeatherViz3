@@ -5,13 +5,13 @@
  * Version: 1.1.0
  */
 
+import type { Data } from 'plotly.js'
 import React, { useEffect, useState } from 'react'
-import { speciesApi, analyticsApi } from '../api'
+import { analyticsApi, speciesApi } from '../api'
+import type { WeeklyTrend } from '../api/analytics'
 import { LineChart } from '../components/charts'
 import { useFilters } from '../context/FilterContext'
-import type { SpeciesDiversityTrend, SpeciesDiscoveryCurve } from '../types/api'
-import type { WeeklyTrend } from '../api/analytics'
-import type { Data } from 'plotly.js'
+import type { SpeciesDiscoveryCurve, SpeciesDiversityTrend } from '../types/api'
 
 const SpeciesAnalysis: React.FC = () => {
   const { startDate, endDate, getStationIdsParam } = useFilters()
@@ -21,7 +21,7 @@ const SpeciesAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Reload when filters change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — loadData is closed over the filter values and we want to refetch when any of them change
   useEffect(() => {
     loadData()
   }, [startDate, endDate, getStationIdsParam()])
@@ -159,9 +159,7 @@ const SpeciesAnalysis: React.FC = () => {
             }}
           />
         ) : (
-          <div className="text-center text-muted-foreground py-8">
-            No diversity data available
-          </div>
+          <div className="text-center text-muted-foreground py-8">No diversity data available</div>
         )}
       </div>
 
@@ -182,9 +180,7 @@ const SpeciesAnalysis: React.FC = () => {
             }}
           />
         ) : (
-          <div className="text-center text-muted-foreground py-8">
-            No discovery data available
-          </div>
+          <div className="text-center text-muted-foreground py-8">No discovery data available</div>
         )}
       </div>
 
@@ -210,7 +206,7 @@ const SpeciesAnalysis: React.FC = () => {
             <div className="text-xl font-bold mt-2">
               {discoveryData[discoveryData.length - 1]
                 ? new Date(
-                    discoveryData[discoveryData.length - 1].discovery_date
+                    discoveryData[discoveryData.length - 1].discovery_date,
                   ).toLocaleDateString()
                 : 'N/A'}
             </div>
@@ -230,7 +226,10 @@ const SpeciesAnalysis: React.FC = () => {
             layout={{
               title: { text: 'Weekly Detection Totals & Species Count' },
               xaxis: { title: { text: 'Week' }, type: 'date' },
-              yaxis: { title: { text: 'Total Detections', font: { color: '#4338CA' } }, side: 'left' },
+              yaxis: {
+                title: { text: 'Total Detections', font: { color: '#4338CA' } },
+                side: 'left',
+              },
               yaxis2: {
                 title: { text: 'Unique Species', font: { color: '#10B981' } },
                 side: 'right',

@@ -5,14 +5,14 @@
  * Version: 1.1.0
  */
 
-import { apiClient } from './client'
 import type {
-  SpeciesResponse,
-  SpeciesDiversityTrend,
-  SpeciesDiscoveryCurve,
-  NewSpeciesThisWeek,
   FamilyStats,
+  NewSpeciesThisWeek,
+  SpeciesDiscoveryCurve,
+  SpeciesDiversityTrend,
+  SpeciesResponse,
 } from '../types/api'
+import { apiClient } from './client'
 
 export interface HourlyPattern {
   hour: number
@@ -106,10 +106,16 @@ export const speciesApi = {
   /**
    * Get species by family
    */
-  getByFamily: async (familyName: string, params?: {
-    station_ids?: string
-  }): Promise<SpeciesResponse[]> => {
-    return apiClient.get<SpeciesResponse[]>(`/species/by-family/${encodeURIComponent(familyName)}`, params)
+  getByFamily: async (
+    familyName: string,
+    params?: {
+      station_ids?: string
+    },
+  ): Promise<SpeciesResponse[]> => {
+    return apiClient.get<SpeciesResponse[]>(
+      `/species/by-family/${encodeURIComponent(familyName)}`,
+      params,
+    )
   },
 
   /**
@@ -158,7 +164,9 @@ export const speciesApi = {
   /**
    * Get iNaturalist taxon ID for a species (fetches and caches if not available)
    */
-  getInatTaxonId: async (scientificName: string): Promise<{
+  getInatTaxonId: async (
+    scientificName: string,
+  ): Promise<{
     scientific_name: string
     taxon_id: number | null
     url: string

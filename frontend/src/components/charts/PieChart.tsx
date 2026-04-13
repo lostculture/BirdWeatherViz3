@@ -17,12 +17,7 @@ interface PieChartProps {
   className?: string
 }
 
-const PieChart: React.FC<PieChartProps> = ({
-  data,
-  layout = {},
-  config = {},
-  className = '',
-}) => {
+const PieChart: React.FC<PieChartProps> = ({ data, layout = {}, config = {}, className = '' }) => {
   const defaultLayout: Partial<PlotParams['layout']> = {
     autosize: true,
     margin: { l: 30, r: 30, t: 30, b: 30 },
