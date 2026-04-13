@@ -123,13 +123,15 @@ jobs:
   docker-smoke:
     name: Docker compose smoke (pre-built images)
     runs-on: ubuntu-latest
+    # Hoisted to job level so the `down` cleanup step can also interpolate
+    # the compose file's ${CONFIG_PASSWORD:?...} checks when it runs.
+    env:
+      CONFIG_PASSWORD: smoke-test-password
+      JWT_SECRET: smoke-test-jwt-secret-that-is-32-chars-long-ok
     steps:
       - uses: actions/checkout@v4
 
       - name: Start services
-        env:
-          CONFIG_PASSWORD: smoke-test-password
-          JWT_SECRET: smoke-test-jwt-secret-that-is-32-chars-long-ok
         run: docker compose -f docker-compose.public-test.yml up -d
 
       - name: Wait for backend health
