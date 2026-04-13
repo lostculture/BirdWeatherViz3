@@ -8,8 +8,64 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Fast failure signal — lint + type check before we fire up OS matrix installs.
+  lint:
+    name: Lint + type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install frontend deps
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+      - name: Biome lint
+        working-directory: frontend
+        run: bun run lint
+      - name: TypeScript check
+        working-directory: frontend
+        run: bunx tsc --noEmit
+
+  security-audit:
+    name: Security audit (deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # --- Backend (pip-audit) ---------------------------------------------------
+      - name: Install pip-audit
+        run: python -m pip install --quiet pip-audit
+
+      - name: Backend dependency audit
+        run: pip-audit -r backend/requirements.txt
+
+      # --- Frontend (bun audit) --------------------------------------------------
+      - name: Install frontend deps
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      # Hard gate on critical/high — every currently-known issue is in dev deps
+      # (vite/vitest/tailwind transitives), so we block on critical + high to keep
+      # the PR signal actionable. Full audit runs as an informational step below.
+      - name: Frontend dependency audit (block on critical + high)
+        working-directory: frontend
+        run: bun audit --audit-level=high
+
+      - name: Frontend dependency audit (full report, informational)
+        if: always()
+        working-directory: frontend
+        run: bun audit || true
+
   install-test:
     name: Install test (${{ matrix.os }})
+    needs: [lint]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -17,23 +73,16 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # Run the same bootstrap test.py that users run locally. We skip the
-      # long-running server startup by setting an env flag the script can
-      # short-circuit on. For the smoke test we only care that dependency
-      # install, venv creation, and bun install all succeed.
       - name: Backend venv + deps (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
@@ -55,19 +104,10 @@ jobs:
         working-directory: frontend
         run: bun install --frozen-lockfile
 
-      - name: Frontend lint (Biome)
-        working-directory: frontend
-        run: bun run lint
-
-      - name: Frontend type check
-        working-directory: frontend
-        run: bunx tsc --noEmit
-
       - name: Frontend build
         working-directory: frontend
         run: bun run build
 
-      # Boot the backend briefly so we catch import-time crashes
       - name: Backend import smoke (Linux/macOS)
         if: runner.os != 'Windows'
         working-directory: backend

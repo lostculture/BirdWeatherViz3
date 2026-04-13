@@ -87,26 +87,83 @@ BirdWeatherViz3/
 
 ## Quick Start
 
-**You only need Docker.** No clone, no Python, no Node.js, no Bun.
+**Never used a terminal before? Don't worry — follow these steps exactly and you'll be up and running in about 10 minutes.** You don't need to install Python, Node.js, or anything else. The whole app runs inside Docker.
+
+### Step 1 — Install Docker Desktop
+
+Docker Desktop is a free app from the company Docker that runs the BirdWeather software for you. Pick the download for your computer:
+
+- **Mac (Apple Silicon — M1/M2/M3/M4):** <https://desktop.docker.com/mac/main/arm64/Docker.dmg>
+- **Mac (Intel):** <https://desktop.docker.com/mac/main/amd64/Docker.dmg>
+- **Windows 10/11:** <https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe>
+- **Linux:** <https://docs.docker.com/desktop/install/linux-install/>
+
+Open the downloaded file and follow the installer. When it's finished, **launch Docker Desktop** and wait until the little whale icon in your menu bar / system tray stops animating — that means Docker is ready.
+
+### Step 2 — Open a Terminal window
+
+You'll paste one block of commands into this window. It looks scary but it's just a place to type instructions.
+
+- **Mac:** Press `⌘ + Space`, type `Terminal`, press Enter.
+- **Windows:** Press the Windows key, type `PowerShell`, press Enter.
+- **Linux:** Open the app called `Terminal` from your applications menu.
+
+### Step 3 — Paste these commands
+
+Copy the block below for your operating system, paste it into the Terminal, and press Enter. You'll be prompted for an admin password for BirdWeather — pick anything you can remember. The rest is automatic.
+
+<details open>
+<summary><b>Mac / Linux</b></summary>
 
 ```bash
-# 1. Download the compose file
 curl -O https://raw.githubusercontent.com/lostculture/BirdWeatherViz3/master/docker-compose.public-test.yml
-
-# 2. Set the two required secrets
-export CONFIG_PASSWORD="pick-a-password"
+read -s -p "Pick an admin password for BirdWeather: " CONFIG_PASSWORD && echo
+export CONFIG_PASSWORD
 export JWT_SECRET="$(openssl rand -hex 32)"
-
-# 3. Start (pulls pre-built images automatically)
 docker compose -f docker-compose.public-test.yml up -d
 ```
+</details>
 
-Then open **http://localhost:3004** (frontend) — the API is at **http://localhost:8002**.
+<details>
+<summary><b>Windows (PowerShell)</b></summary>
 
-To stop: `docker compose -f docker-compose.public-test.yml down`
-To update: `docker compose -f docker-compose.public-test.yml pull && docker compose -f docker-compose.public-test.yml up -d`
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/lostculture/BirdWeatherViz3/master/docker-compose.public-test.yml -OutFile docker-compose.public-test.yml
+$pwd_secure = Read-Host -AsSecureString "Pick an admin password for BirdWeather"
+$env:CONFIG_PASSWORD = [System.Net.NetworkCredential]::new("", $pwd_secure).Password
+$env:JWT_SECRET = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 64 | ForEach-Object {[char]$_})
+docker compose -f docker-compose.public-test.yml up -d
+```
+</details>
 
-Data persists in a Docker named volume across restarts and upgrades. Images are multi-arch (`linux/amd64` + `linux/arm64`), so this works on Intel/AMD Linux, Apple Silicon Macs, and Raspberry Pi 4/5.
+You'll see some download progress and then messages saying containers are "Started". That means it worked.
+
+### Step 4 — Open it in your browser
+
+Click this link (or copy it into your browser's address bar):
+
+### → <http://localhost:3004>
+
+You'll see the BirdWeather dashboard. Log in with the password you just picked. It will be empty until you add a BirdWeather station in the **Configuration** page.
+
+---
+
+### Stopping, updating, and uninstalling
+
+Back in the same Terminal window, in the same folder:
+
+- **Stop it** (can restart later): `docker compose -f docker-compose.public-test.yml down`
+- **Start it again** later: `docker compose -f docker-compose.public-test.yml up -d`
+- **Update to the latest version:** `docker compose -f docker-compose.public-test.yml pull` then `up -d` again
+- **Uninstall everything including your data:** `docker compose -f docker-compose.public-test.yml down -v`
+
+Your data (stations, detection history, settings) is stored in a Docker volume and survives stops, starts, and upgrades. Only the `down -v` command deletes it.
+
+### Troubleshooting
+
+- **"docker: command not found"** — Docker Desktop isn't installed or isn't running. Open the Docker Desktop app and wait for the whale icon to stop animating, then try again.
+- **Browser shows "This site can't be reached"** — Give it another 30 seconds, the containers are still starting up. If it still fails, run `docker compose -f docker-compose.public-test.yml logs` and copy the output into a GitHub issue.
+- **Something else is using port 3004 or 8002** — Edit `docker-compose.public-test.yml` with any text editor and change the left-hand side of `3004:80` or `8002:8000` to different numbers (e.g. `3999:80`).
 
 ---
 
@@ -152,8 +209,14 @@ The test scripts:
 - Create an isolated Python venv at `backend/.venv` (does not touch system Python)
 - Install backend deps into the venv via pip
 - Install frontend deps via `bun install --frozen-lockfile`
-- Start uvicorn on :8000 and Vite dev server on :3000
-- Open your browser to http://localhost:3000
+- Start uvicorn on **:8765** and Vite dev server on **:5173**
+- Open your browser to http://localhost:5173
+
+Override the default ports if they clash with something else on your machine:
+
+```bash
+BACKEND_PORT=8766 FRONTEND_PORT=5174 ./test.sh
+```
 
 See [TESTING.md](TESTING.md) for manual setup steps and troubleshooting.
 </details>

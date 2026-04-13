@@ -41,6 +41,13 @@ BACKEND = os.path.join(ROOT, "backend")
 FRONTEND = os.path.join(ROOT, "frontend")
 VENV = os.path.join(BACKEND, ".venv")
 
+# Default ports are chosen to avoid common clashes (React 3000, FastAPI 8000).
+# Override with BACKEND_PORT / FRONTEND_PORT env vars if needed.
+BACKEND_PORT = os.environ.get("BACKEND_PORT", "8765")
+FRONTEND_PORT = os.environ.get("FRONTEND_PORT", "5173")
+os.environ["BACKEND_PORT"] = BACKEND_PORT
+os.environ["FRONTEND_PORT"] = FRONTEND_PORT
+
 processes = []
 
 def cleanup(*_):
@@ -68,6 +75,15 @@ def check_url(url, timeout=5):
         return True
     except Exception:
         return False
+
+def port_in_use(port):
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", int(port))) == 0
+    finally:
+        s.close()
 
 def require(binary, install_hint):
     if shutil.which(binary):
@@ -147,27 +163,36 @@ def main():
     else:
         success("node_modules already exists")
 
+    # ── Bail if the chosen ports are already bound ───────────────────────
+    for port in (BACKEND_PORT, FRONTEND_PORT):
+        if port_in_use(port):
+            error(f"Port {port} is already in use.")
+            print("  Something else (Docker, another dev server, …) is bound to it.")
+            print("  Either stop that process, or re-run with different ports, e.g.:")
+            print("      BACKEND_PORT=8766 FRONTEND_PORT=5174 python3 test.py")
+            sys.exit(1)
+
     # ── Start backend ────────────────────────────────────────────────────
     header("Starting Backend Server")
-    info("uvicorn on http://localhost:8000 ...")
+    info(f"uvicorn on http://localhost:{BACKEND_PORT} ...")
     backend_log = open(os.path.join(ROOT, "backend.log"), "w")
     processes.append(subprocess.Popen(
         [vpy, "-m", "uvicorn", "app.main:app", "--reload",
-         "--host", "0.0.0.0", "--port", "8000"],
+         "--host", "0.0.0.0", "--port", BACKEND_PORT],
         cwd=BACKEND, stdout=backend_log, stderr=subprocess.STDOUT,
     ))
 
     for _ in range(20):
         time.sleep(1)
-        if check_url("http://localhost:8000/api/v1/health"): break
+        if check_url(f"http://localhost:{BACKEND_PORT}/api/v1/health"): break
     else:
         error("Backend failed to start (see backend.log)")
         cleanup()
-    success("Backend up on http://localhost:8000")
+    success(f"Backend up on http://localhost:{BACKEND_PORT}")
 
     # ── Start frontend ───────────────────────────────────────────────────
     header("Starting Frontend Dev Server")
-    info("bun run dev on http://localhost:3000 ...")
+    info(f"bun run dev on http://localhost:{FRONTEND_PORT} ...")
     frontend_log = open(os.path.join(ROOT, "frontend.log"), "w")
     processes.append(subprocess.Popen(
         ["bun", "run", "dev"],
@@ -176,18 +201,18 @@ def main():
 
     for _ in range(20):
         time.sleep(1)
-        if check_url("http://localhost:3000"): break
+        if check_url(f"http://localhost:{FRONTEND_PORT}"): break
     else:
         warning("Frontend not ready yet (check frontend.log)")
-    success("Frontend up on http://localhost:3000")
+    success(f"Frontend up on http://localhost:{FRONTEND_PORT}")
 
     header("Opening Browser")
-    webbrowser.open("http://localhost:3000")
+    webbrowser.open(f"http://localhost:{FRONTEND_PORT}")
 
     header("Servers Running")
-    success("Backend:  http://localhost:8000")
-    success("Frontend: http://localhost:3000")
-    success("API Docs: http://localhost:8000/api/v1/docs")
+    success(f"Backend:  http://localhost:{BACKEND_PORT}")
+    success(f"Frontend: http://localhost:{FRONTEND_PORT}")
+    success(f"API Docs: http://localhost:{BACKEND_PORT}/api/v1/docs")
     warning("Press Ctrl+C to stop")
     print()
 

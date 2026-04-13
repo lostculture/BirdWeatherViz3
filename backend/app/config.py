@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./data/uploads"
     MAX_UPLOAD_SIZE: int = 100 * 1024 * 1024  # 100MB
 
+    # Base data directory (image cache, etc.). `./data` locally, `/app/data` in Docker.
+    # Declared here so pydantic-settings v2 accepts it from .env without extra_forbidden.
+    DATA_DIR: str = "./data"
+
     # External APIs
     BIRDWEATHER_API_URL: str = "https://app.birdweather.com/api/v1"
     OPENMETEO_FORECAST_URL: str = "https://api.open-meteo.com/v1/forecast"

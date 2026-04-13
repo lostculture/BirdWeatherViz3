@@ -10,6 +10,13 @@ function ER  ($m) { Write-Host "x $m" -ForegroundColor Red }
 function IN_ ($m) { Write-Host "> $m" -ForegroundColor Cyan }
 function WA  ($m) { Write-Host "! $m" -ForegroundColor Yellow }
 
+# Default ports avoid common clashes (React 3000, FastAPI 8000).
+# Override with BACKEND_PORT / FRONTEND_PORT env vars if needed.
+if (-not $env:BACKEND_PORT)  { $env:BACKEND_PORT  = "8765" }
+if (-not $env:FRONTEND_PORT) { $env:FRONTEND_PORT = "5173" }
+$BackendPort  = $env:BACKEND_PORT
+$FrontendPort = $env:FRONTEND_PORT
+
 $Script:BackendJob  = $null
 $Script:FrontendJob = $null
 
@@ -17,9 +24,6 @@ function Cleanup {
     H "Shutting Down"
     if ($Script:BackendJob)  { Stop-Job -Job $Script:BackendJob  -ErrorAction SilentlyContinue; Remove-Job -Job $Script:BackendJob  -ErrorAction SilentlyContinue }
     if ($Script:FrontendJob) { Stop-Job -Job $Script:FrontendJob -ErrorAction SilentlyContinue; Remove-Job -Job $Script:FrontendJob -ErrorAction SilentlyContinue }
-    $procs = Get-NetTCPConnection -LocalPort 8000,3000 -ErrorAction SilentlyContinue |
-             Select-Object -ExpandProperty OwningProcess -Unique
-    foreach ($p in $procs) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
     OK "All servers stopped"
 }
 $null = Register-EngineEvent PowerShell.Exiting -Action { Cleanup }
@@ -102,56 +106,59 @@ if (!(Test-Path "frontend\node_modules")) {
     OK "node_modules already exists"
 }
 
-# ── Free ports ───────────────────────────────────────────────────────────
-foreach ($port in 8000,3000) {
-    $procs = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue |
-             Select-Object -ExpandProperty OwningProcess -Unique
-    if ($procs) {
-        WA "Port $port in use — killing"
-        foreach ($p in $procs) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
-        Start-Sleep -Seconds 1
+# ── Bail if the chosen ports are already bound ───────────────────────────
+foreach ($port in @($BackendPort, $FrontendPort)) {
+    $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+    if ($conn) {
+        ER "Port $port is already in use."
+        Write-Host "  Something else (Docker, another dev server, ...) is bound to it."
+        Write-Host "  Either stop that process, or re-run with different ports, e.g.:"
+        Write-Host "      `$env:BACKEND_PORT=8766; `$env:FRONTEND_PORT=5174; .\test.ps1"
+        exit 1
     }
 }
 
 # ── Start backend ────────────────────────────────────────────────────────
 H "Starting Backend Server"
-IN_ "uvicorn on http://localhost:8000 ..."
+IN_ "uvicorn on http://localhost:$BackendPort ..."
 $Script:BackendJob = Start-Job -ScriptBlock {
-    param($root)
+    param($root, $port)
     Set-Location "$root\backend"
-    & "$root\backend\.venv\Scripts\python.exe" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-} -ArgumentList $PWD.Path
+    & "$root\backend\.venv\Scripts\python.exe" -m uvicorn app.main:app --reload --host 0.0.0.0 --port $port
+} -ArgumentList $PWD.Path, $BackendPort
 
 for ($i=0; $i -lt 20; $i++) {
     Start-Sleep -Seconds 1
-    try { Invoke-WebRequest -Uri "http://localhost:8000/api/v1/health" -UseBasicParsing -TimeoutSec 3 | Out-Null; break } catch {}
+    try { Invoke-WebRequest -Uri "http://localhost:$BackendPort/api/v1/health" -UseBasicParsing -TimeoutSec 3 | Out-Null; break } catch {}
 }
-try { Invoke-WebRequest -Uri "http://localhost:8000/api/v1/health" -UseBasicParsing -TimeoutSec 3 | Out-Null; OK "Backend up on http://localhost:8000" }
+try { Invoke-WebRequest -Uri "http://localhost:$BackendPort/api/v1/health" -UseBasicParsing -TimeoutSec 3 | Out-Null; OK "Backend up on http://localhost:$BackendPort" }
 catch { ER "Backend failed to start"; Cleanup; exit 1 }
 
 # ── Start frontend ───────────────────────────────────────────────────────
 H "Starting Frontend Dev Server"
-IN_ "bun run dev on http://localhost:3000 ..."
+IN_ "bun run dev on http://localhost:$FrontendPort ..."
 $Script:FrontendJob = Start-Job -ScriptBlock {
-    param($root)
+    param($root, $bp, $fp)
     Set-Location "$root\frontend"
+    $env:BACKEND_PORT  = $bp
+    $env:FRONTEND_PORT = $fp
     & bun run dev
-} -ArgumentList $PWD.Path
+} -ArgumentList $PWD.Path, $BackendPort, $FrontendPort
 
 for ($i=0; $i -lt 20; $i++) {
     Start-Sleep -Seconds 1
-    try { Invoke-WebRequest -Uri "http://localhost:3000" -UseBasicParsing -TimeoutSec 3 | Out-Null; break } catch {}
+    try { Invoke-WebRequest -Uri "http://localhost:$FrontendPort" -UseBasicParsing -TimeoutSec 3 | Out-Null; break } catch {}
 }
-try { Invoke-WebRequest -Uri "http://localhost:3000" -UseBasicParsing -TimeoutSec 3 | Out-Null; OK "Frontend up on http://localhost:3000" }
+try { Invoke-WebRequest -Uri "http://localhost:$FrontendPort" -UseBasicParsing -TimeoutSec 3 | Out-Null; OK "Frontend up on http://localhost:$FrontendPort" }
 catch { WA "Frontend not ready yet (check job output)" }
 
 H "Opening Browser"
-Start-Process "http://localhost:3000"
+Start-Process "http://localhost:$FrontendPort"
 
 H "Servers Running"
-OK "Backend:  http://localhost:8000"
-OK "Frontend: http://localhost:3000"
-OK "API Docs: http://localhost:8000/api/v1/docs"
+OK "Backend:  http://localhost:$BackendPort"
+OK "Frontend: http://localhost:$FrontendPort"
+OK "API Docs: http://localhost:$BackendPort/api/v1/docs"
 WA "Press Ctrl+C to stop"
 Write-Host ""
 

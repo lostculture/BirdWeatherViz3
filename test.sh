@@ -23,6 +23,12 @@ trap cleanup SIGINT SIGTERM
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
+# Default ports are chosen to avoid common clashes (React 3000, FastAPI 8000).
+# Override with BACKEND_PORT / FRONTEND_PORT if needed.
+BACKEND_PORT="${BACKEND_PORT:-8765}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+export BACKEND_PORT FRONTEND_PORT
+
 h "BirdWeatherViz3 Test Script"
 
 h "Checking Dependencies"
@@ -96,69 +102,72 @@ else
     ok "node_modules already exists"
 fi
 
-# ── Free ports if something is already bound ─────────────────────────────
-free_port() {
-    local port="$1" pid=""
-    if command -v lsof >/dev/null 2>&1; then
-        pid=$(lsof -ti :"$port" 2>/dev/null || true)
-    elif command -v ss >/dev/null 2>&1; then
-        pid=$(ss -tlnp 2>/dev/null | grep ":$port " | grep -oE 'pid=[0-9]+' | cut -d= -f2 || true)
-    fi
-    if [[ -n "$pid" ]]; then
-        wa "Port $port in use (PID $pid) — killing"
-        kill "$pid" 2>/dev/null || true
-        sleep 1
-        kill -9 "$pid" 2>/dev/null || true
+# ── Bail if the chosen ports are already bound ───────────────────────────
+port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$"
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+    else
+        return 1  # can't check, assume free
     fi
 }
-free_port 8000
-free_port 3000
+for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
+    if port_in_use "$port"; then
+        er "Port $port is already in use."
+        echo "  Something else (Docker, another dev server, …) is bound to it."
+        echo "  Either stop that process, or re-run with different ports, e.g.:"
+        echo "      BACKEND_PORT=8766 FRONTEND_PORT=5174 ./test.sh"
+        exit 1
+    fi
+done
 
 # ── Start backend ────────────────────────────────────────────────────────
 h "Starting Backend Server"
-in_ "uvicorn on http://localhost:8000 ..."
-(cd backend && "$VPY" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000) \
+in_ "uvicorn on http://localhost:$BACKEND_PORT ..."
+(cd backend && "$VPY" -m uvicorn app.main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT") \
     > backend.log 2>&1 &
 BACKEND_PID=$!
 
 for _ in {1..20}; do
     sleep 1
-    if curl -sf http://localhost:8000/api/v1/health >/dev/null; then break; fi
+    if curl -sf "http://localhost:$BACKEND_PORT/api/v1/health" >/dev/null; then break; fi
 done
-if ! curl -sf http://localhost:8000/api/v1/health >/dev/null; then
+if ! curl -sf "http://localhost:$BACKEND_PORT/api/v1/health" >/dev/null; then
     er "Backend failed to start (see backend.log)"; cleanup
 fi
-ok "Backend up on http://localhost:8000"
+ok "Backend up on http://localhost:$BACKEND_PORT"
 
 # ── Start frontend ───────────────────────────────────────────────────────
 h "Starting Frontend Dev Server"
-in_ "bun run dev on http://localhost:3000 ..."
+in_ "bun run dev on http://localhost:$FRONTEND_PORT ..."
 (cd frontend && bun run dev) > frontend.log 2>&1 &
 FRONTEND_PID=$!
 
 for _ in {1..20}; do
     sleep 1
-    if curl -sf http://localhost:3000 >/dev/null; then break; fi
+    if curl -sf "http://localhost:$FRONTEND_PORT" >/dev/null; then break; fi
 done
-if ! curl -sf http://localhost:3000 >/dev/null; then
+if ! curl -sf "http://localhost:$FRONTEND_PORT" >/dev/null; then
     wa "Frontend not ready yet (check frontend.log)"
 fi
-ok "Frontend up on http://localhost:3000"
+ok "Frontend up on http://localhost:$FRONTEND_PORT"
 
 # ── Open browser ─────────────────────────────────────────────────────────
 h "Opening Browser"
 if command -v open >/dev/null 2>&1; then
-    open http://localhost:3000
+    open "http://localhost:$FRONTEND_PORT"
 elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open http://localhost:3000
+    xdg-open "http://localhost:$FRONTEND_PORT"
 else
     wa "Could not auto-open browser"
 fi
 
 h "Servers Running"
-ok "Backend:  http://localhost:8000"
-ok "Frontend: http://localhost:3000"
-ok "API Docs: http://localhost:8000/api/v1/docs"
+ok "Backend:  http://localhost:$BACKEND_PORT"
+ok "Frontend: http://localhost:$FRONTEND_PORT"
+ok "API Docs: http://localhost:$BACKEND_PORT/api/v1/docs"
 wa "Press Ctrl+C to stop"
 echo
 
