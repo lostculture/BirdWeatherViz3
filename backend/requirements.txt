@@ -7,7 +7,7 @@
 fastapi>=0.117.0  # bumped from 0.109.0 to fix PYSEC-2024-38 / CVE-2024-47874 / CVE-2025-54121 / CVE-2025-62727 (transitively via starlette)
 starlette>=0.49.1  # explicit pin: the fastapi >=0.117 range allows it, and it's the first starlette without the above CVEs
 uvicorn[standard]>=0.32.0
-python-multipart==0.0.22
+python-multipart==0.0.26
 aiofiles==23.2.1
 
 # ========================================
