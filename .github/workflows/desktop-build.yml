@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # --- Frontend build ---
       - uses: oven-sh/setup-bun@v2
@@ -76,7 +76,7 @@ jobs:
 
       # --- Upload ---
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}${{ matrix.ext }}

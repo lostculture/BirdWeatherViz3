@@ -13,7 +13,7 @@ jobs:
     name: Lint + type check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -31,7 +31,7 @@ jobs:
     name: Security audit (deps)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -74,7 +74,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v5
         with:
@@ -129,7 +129,7 @@ jobs:
       CONFIG_PASSWORD: smoke-test-password
       JWT_SECRET: smoke-test-jwt-secret-that-is-32-chars-long-ok
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Start services
         run: docker compose -f docker-compose.public-test.yml up -d
