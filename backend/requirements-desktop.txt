@@ -1,0 +1,5 @@
+# Desktop-only dependencies (not needed for Docker/web deployment)
+# Install with: pip install -r requirements.txt -r requirements-desktop.txt
+
+pywebview>=5.0
+platformdirs>=4.0

@@ -16,7 +16,9 @@ from app.db.session import get_db
 from app.config import settings
 
 # Security scheme for Bearer token authentication
-security = HTTPBearer()
+# In desktop mode, make it optional so unauthenticated requests aren't rejected
+# before get_current_user can return the dummy user.
+security = HTTPBearer(auto_error=settings.BWV_MODE != "desktop")
 
 # Password setting key in database
 PASSWORD_SETTING_KEY = "config_password_hash"
@@ -28,6 +30,9 @@ def get_current_user(
     """
     Validate JWT token and return current user.
 
+    In desktop mode, authentication is skipped — the app runs on localhost
+    with no remote access, so auth adds no security value.
+
     Args:
         credentials: HTTP Bearer token credentials
 
@@ -35,8 +40,12 @@ def get_current_user(
         User information dict with username
 
     Raises:
-        HTTPException: If token is invalid or expired
+        HTTPException: If token is invalid or expired (web mode only)
     """
+    # Desktop mode: no auth required — return a dummy admin user
+    if settings.BWV_MODE == "desktop":
+        return {"username": "desktop_user"}
+
     token = credentials.credentials
 
     try:

@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
 
+    # Desktop mode: "web" (default) or "desktop" (pywebview launcher)
+    BWV_MODE: str = "web"
+    # Path to built frontend dist directory (used in desktop mode to serve static files)
+    FRONTEND_DIST_DIR: str = "./frontend/dist"
+
     # API Settings
     API_V1_PREFIX: str = "/api/v1"
     API_HOST: str = "0.0.0.0"

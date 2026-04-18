@@ -2,11 +2,12 @@
  * Layout Component
  * Main application layout with navigation and content area.
  *
- * Version: 1.1.0
+ * Version: 2.0.0
  */
 
-import React, { ReactNode, useEffect, useState, useRef } from 'react'
-import { stationsApi } from '../../api'
+import React, { ReactNode, useEffect, useRef, useState } from 'react'
+import { settingsApi, stationsApi } from '../../api'
+import { useSync } from '../../context/SyncContext'
 import FilterBar from './FilterBar'
 import Navigation from './Navigation'
 
@@ -14,75 +15,60 @@ interface LayoutProps {
   children: ReactNode
 }
 
-interface SyncStatus {
-  syncing: boolean
-  message: string
-  error: boolean
-}
-
 const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
+  const { syncing, progress, error, lastResult, syncAll } = useSync()
   const hasSynced = useRef(false)
+  const [bannerVisible, setBannerVisible] = useState(false)
+  const [bannerMessage, setBannerMessage] = useState('')
+  const [bannerError, setBannerError] = useState(false)
 
-  // Auto-sync all stations on app load
+  // Show banner when sync state changes
+  useEffect(() => {
+    if (syncing) {
+      setBannerVisible(true)
+      setBannerMessage(progress || 'Syncing stations...')
+      setBannerError(false)
+    } else if (error) {
+      setBannerVisible(true)
+      setBannerMessage(error)
+      setBannerError(true)
+      const timer = setTimeout(() => setBannerVisible(false), 15000)
+      return () => clearTimeout(timer)
+    } else if (lastResult) {
+      setBannerVisible(true)
+      setBannerMessage(
+        lastResult.total > 0
+          ? `Synced ${lastResult.total} new detections`
+          : 'All stations up to date',
+      )
+      setBannerError(false)
+      const timer = setTimeout(() => setBannerVisible(false), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [syncing, progress, error, lastResult])
+
+  // Auto-sync on app load if the setting is enabled
   useEffect(() => {
     if (hasSynced.current) return
     hasSynced.current = true
 
-    const autoSync = async () => {
+    const maybeAutoSync = async () => {
       try {
-        // Check if there are any stations first
+        const enabled = await settingsApi.getAutoUpdateOnStart()
+        if (!enabled) return
+
         const stations = await stationsApi.getAll({ active_only: true })
-        if (stations.length === 0) {
-          return // No stations to sync
-        }
+        if (stations.length === 0) return
 
-        setSyncStatus({
-          syncing: true,
-          message: 'Syncing stations (this may take a few minutes)...',
-          error: false,
-        })
-
-        const result = await stationsApi.syncAll()
-
-        if (result.total_detections_added > 0) {
-          setSyncStatus({
-            syncing: false,
-            message: `Synced ${result.total_detections_added} new detections`,
-            error: false,
-          })
-        } else {
-          setSyncStatus({
-            syncing: false,
-            message: 'All stations up to date',
-            error: false,
-          })
-        }
-
-        // Auto-hide success message after 5 seconds
-        setTimeout(() => setSyncStatus(null), 5000)
-      } catch (err: any) {
-        console.error('Auto-sync failed:', err)
-
-        // Check if it's a timeout error
-        const isTimeout = err.message?.includes('timeout') || err.code === 'ECONNABORTED'
-
-        setSyncStatus({
-          syncing: false,
-          message: isTimeout
-            ? 'Initial sync taking longer than expected - sync manually from Configuration'
-            : 'Sync failed - check Configuration',
-          error: true,
-        })
-        // Keep error visible for longer
-        setTimeout(() => setSyncStatus(null), 15000)
+        await syncAll()
+      } catch (err) {
+        console.error('Auto-sync check failed:', err)
       }
     }
 
-    // Small delay to let the app initialize
-    const timer = setTimeout(autoSync, 1000)
+    const timer = setTimeout(maybeAutoSync, 1000)
     return () => clearTimeout(timer)
-  }, [])
+  }, [syncAll])
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -90,23 +76,24 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <FilterBar />
 
       {/* Sync Status Banner */}
-      {syncStatus && (
+      {bannerVisible && (
         <div
           className={`px-4 py-2 text-center text-sm font-medium transition-all ${
-            syncStatus.error
+            bannerError
               ? 'bg-red-100 text-red-800'
-              : syncStatus.syncing
+              : syncing
                 ? 'bg-indigo-cerulean/20 text-indigo-deep'
                 : 'bg-green-100 text-green-800'
           }`}
         >
-          {syncStatus.syncing && (
+          {syncing && (
             <span className="inline-block w-4 h-4 mr-2 border-2 border-current border-t-transparent rounded-full animate-spin" />
           )}
-          {syncStatus.message}
-          {!syncStatus.syncing && (
-            <button type="button"
-              onClick={() => setSyncStatus(null)}
+          {bannerMessage}
+          {!syncing && (
+            <button
+              type="button"
+              onClick={() => setBannerVisible(false)}
               className="ml-4 opacity-60 hover:opacity-100"
               aria-label="Dismiss"
             >
@@ -120,7 +107,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <footer className="bg-indigo-dark text-white/80 py-4 mt-auto">
         <div className="container mx-auto px-4 text-center text-sm">
           <p>BirdWeatherViz3 - Next Generation Bird Detection Visualization Platform</p>
-          <p className="mt-1 opacity-75">Powered by BirdWeather API | Version 1.1.0</p>
+          <p className="mt-1 opacity-75">Powered by BirdWeather API</p>
         </div>
       </footer>
     </div>

@@ -13,6 +13,7 @@ import csv
 import io
 
 from app.api.deps import get_db_dependency, get_current_user
+from app.config import settings as app_settings
 from app.db.models.setting import Setting
 from app.db.models.species import Species
 from app.db.models.station import Station
@@ -58,6 +59,51 @@ class DetectionUploadResponse(BaseModel):
     species_created: int
     stations_matched: int
     message: str
+
+
+AUTO_UPDATE_KEY = "auto_update_on_start"
+
+
+@router.get("/auto-update-on-start")
+async def get_auto_update_on_start(db: Session = Depends(get_db_dependency)):
+    """
+    Get the auto-update-on-start preference.
+
+    Public (no auth) — Layout.tsx reads this on app load before login.
+    Defaults to True for desktop mode, False for web mode, if not yet set.
+    """
+    setting = db.query(Setting).filter(Setting.key == AUTO_UPDATE_KEY).first()
+    if setting:
+        return {"enabled": setting.value.lower() in ("true", "1", "yes")}
+    # Not set yet — return mode-based default
+    default = app_settings.BWV_MODE == "desktop"
+    return {"enabled": default}
+
+
+@router.put("/auto-update-on-start")
+async def set_auto_update_on_start(
+    body: SettingUpdate,
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Set the auto-update-on-start preference. Requires authentication.
+    Send {"value": "true"} or {"value": "false"}.
+    """
+    enabled = body.value.lower() in ("true", "1", "yes")
+    setting = db.query(Setting).filter(Setting.key == AUTO_UPDATE_KEY).first()
+    if setting:
+        setting.value = str(enabled).lower()
+    else:
+        setting = Setting(
+            key=AUTO_UPDATE_KEY,
+            value=str(enabled).lower(),
+            data_type="bool",
+            description="Auto-sync stations when the app starts",
+        )
+        db.add(setting)
+    db.commit()
+    return {"enabled": enabled}
 
 
 @router.get("/", response_model=List[SettingResponse])
@@ -578,3 +624,236 @@ async def upload_detections_csv(
     except Exception as e:
         logger.error(f"Error uploading detections: {e}")
         raise HTTPException(status_code=500, detail=f"Error processing CSV: {str(e)}")
+
+
+@router.post("/detections/upload-stream")
+async def upload_detections_csv_stream(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db_dependency),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Upload detection data from CSV with streaming progress via NDJSON.
+
+    Emits line-by-line progress events so the frontend can show a progress bar.
+    """
+    from fastapi.responses import StreamingResponse
+    import json
+
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="File must be a CSV")
+
+    content = await file.read()
+
+    # Try different encodings
+    text_content = None
+    for encoding in ['utf-8', 'latin-1', 'cp1252']:
+        try:
+            text_content = content.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+
+    if text_content is None:
+        raise HTTPException(status_code=400, detail="Unable to decode CSV file")
+
+    def generate_progress():
+        # Count total lines (excluding header)
+        lines = text_content.strip().split('\n')
+        total_lines = max(len(lines) - 1, 0)  # subtract header
+
+        yield json.dumps({
+            "type": "start",
+            "total_lines": total_lines
+        }) + "\n"
+
+        reader = csv.DictReader(io.StringIO(text_content))
+
+        if not reader.fieldnames:
+            yield json.dumps({
+                "type": "error",
+                "message": "CSV has no headers"
+            }) + "\n"
+            return
+
+        # Normalize column names
+        col_map = {}
+        for field in reader.fieldnames:
+            field_lower = field.lower().strip()
+            if 'timestamp' in field_lower:
+                col_map['timestamp'] = field
+            elif field_lower == 'common name':
+                col_map['common_name'] = field
+            elif field_lower == 'scientific name':
+                col_map['scientific_name'] = field
+            elif field_lower == 'latitude':
+                col_map['latitude'] = field
+            elif field_lower == 'longitude':
+                col_map['longitude'] = field
+            elif field_lower == 'station':
+                col_map['station'] = field
+            elif field_lower == 'confidence':
+                col_map['confidence'] = field
+            elif field_lower == 'score':
+                col_map['score'] = field
+            elif field_lower == 'soundscape':
+                col_map['soundscape'] = field
+
+        required = ['timestamp', 'scientific_name', 'station']
+        missing = [r for r in required if r not in col_map]
+        if missing:
+            yield json.dumps({
+                "type": "error",
+                "message": f"CSV missing required columns: {', '.join(missing)}"
+            }) + "\n"
+            return
+
+        station_cache = {}
+        species_cache = {}
+        detections_added = 0
+        detections_skipped = 0
+        species_created = 0
+        stations_matched = set()
+        line_number = 0
+
+        for row in reader:
+            line_number += 1
+            try:
+                timestamp_str = row.get(col_map['timestamp'], '').strip()
+                if not timestamp_str:
+                    detections_skipped += 1
+                    continue
+
+                timestamp = None
+                for fmt in [
+                    '%Y-%m-%d %H:%M:%S %z',
+                    '%Y-%m-%d %H:%M:%S',
+                    '%Y-%m-%dT%H:%M:%S%z',
+                    '%Y-%m-%dT%H:%M:%S',
+                ]:
+                    try:
+                        timestamp = datetime.strptime(timestamp_str, fmt)
+                        break
+                    except ValueError:
+                        continue
+
+                if not timestamp:
+                    detections_skipped += 1
+                    continue
+
+                station_name = row.get(col_map['station'], '').strip()
+                if not station_name:
+                    detections_skipped += 1
+                    continue
+
+                if station_name not in station_cache:
+                    station = db.query(Station).filter(
+                        Station.name.ilike(f"%{station_name}%")
+                    ).first()
+                    station_cache[station_name] = station
+
+                station = station_cache[station_name]
+                if not station:
+                    detections_skipped += 1
+                    continue
+
+                stations_matched.add(station.id)
+
+                scientific_name = row.get(col_map['scientific_name'], '').strip()
+                common_name = row.get(col_map.get('common_name', ''), '').strip() if 'common_name' in col_map else ''
+
+                if not scientific_name:
+                    detections_skipped += 1
+                    continue
+
+                if scientific_name not in species_cache:
+                    species = db.query(Species).filter(
+                        Species.scientific_name.ilike(scientific_name)
+                    ).first()
+
+                    if not species:
+                        species = Species(
+                            scientific_name=scientific_name,
+                            common_name=common_name or scientific_name,
+                            species_id=None
+                        )
+                        db.add(species)
+                        db.flush()
+                        species_created += 1
+
+                    species_cache[scientific_name] = species
+
+                species = species_cache[scientific_name]
+
+                try:
+                    latitude = float(row.get(col_map.get('latitude', ''), 0) or 0)
+                    longitude = float(row.get(col_map.get('longitude', ''), 0) or 0)
+                except (ValueError, TypeError):
+                    latitude = station.latitude or 0
+                    longitude = station.longitude or 0
+
+                try:
+                    confidence = float(row.get(col_map.get('confidence', ''), 0) or 0)
+                except (ValueError, TypeError):
+                    confidence = 0.0
+
+                existing = db.query(Detection).filter(
+                    Detection.station_id == station.id,
+                    Detection.species_id == species.id,
+                    Detection.timestamp == timestamp
+                ).first()
+
+                if existing:
+                    detections_skipped += 1
+                    continue
+
+                detection = Detection(
+                    station_id=station.id,
+                    species_id=species.id,
+                    detection_id=None,
+                    timestamp=timestamp,
+                    confidence=confidence,
+                    latitude=latitude,
+                    longitude=longitude,
+                    detection_date=timestamp.date(),
+                    detection_hour=timestamp.hour
+                )
+                db.add(detection)
+                detections_added += 1
+
+                if detections_added % 500 == 0:
+                    db.commit()
+
+            except Exception as e:
+                logger.warning(f"Error processing row {line_number}: {e}")
+                detections_skipped += 1
+                continue
+
+            # Emit progress every 50 lines to avoid overwhelming the stream
+            if line_number % 50 == 0:
+                yield json.dumps({
+                    "type": "progress",
+                    "lines_processed": line_number,
+                    "total_lines": total_lines,
+                    "detections_added": detections_added,
+                    "detections_skipped": detections_skipped
+                }) + "\n"
+
+        db.commit()
+
+        yield json.dumps({
+            "type": "complete",
+            "success": True,
+            "detections_added": detections_added,
+            "detections_skipped": detections_skipped,
+            "species_created": species_created,
+            "stations_matched": len(stations_matched),
+            "lines_processed": line_number,
+            "total_lines": total_lines,
+            "message": f"Added {detections_added} detections. Skipped {detections_skipped}. Created {species_created} new species. Matched {len(stations_matched)} stations."
+        }) + "\n"
+
+    return StreamingResponse(
+        generate_progress(),
+        media_type="application/x-ndjson"
+    )

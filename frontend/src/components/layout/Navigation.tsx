@@ -8,6 +8,7 @@
 
 import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import SyncAllButton from '../SyncAllButton'
 
 const Navigation: React.FC = () => {
   const location = useLocation()
@@ -37,7 +38,7 @@ const Navigation: React.FC = () => {
             <span className="text-xl font-bold">BirdWeatherViz3</span>
             <span className="text-sm opacity-80">v1.4.0</span>
           </div>
-          <div className="flex space-x-1">
+          <div className="flex items-center space-x-1">
             {navItems.map((item) => (
               <Link
                 key={item.path}
@@ -51,6 +52,9 @@ const Navigation: React.FC = () => {
                 {item.label}
               </Link>
             ))}
+            <div className="ml-2 pl-2 border-l border-white/30">
+              <SyncAllButton variant="header" />
+            </div>
           </div>
         </div>
       </div>

@@ -42,6 +42,18 @@ export interface DetectionUploadResponse {
   message: string
 }
 
+export interface DetectionUploadProgressEvent {
+  type: 'start' | 'progress' | 'complete' | 'error'
+  total_lines?: number
+  lines_processed?: number
+  detections_added?: number
+  detections_skipped?: number
+  species_created?: number
+  stations_matched?: number
+  message?: string
+  success?: boolean
+}
+
 // Bird Information Sources Configuration
 export interface BirdInfoSource {
   id: string
@@ -110,6 +122,31 @@ export const BIRD_SOURCE_REGIONS: Record<string, string[]> = {
 export const DEFAULT_BIRD_SOURCES = ['ebird', 'wikipedia']
 
 export const settingsApi = {
+  /**
+   * Get auto-update-on-start preference (public, no auth required)
+   */
+  getAutoUpdateOnStart: async (): Promise<boolean> => {
+    const resp = await apiClient.get<{ enabled: boolean }>('/settings/auto-update-on-start')
+    return resp.enabled
+  },
+
+  /**
+   * Set auto-update-on-start preference (requires auth)
+   */
+  setAutoUpdateOnStart: async (enabled: boolean): Promise<{ enabled: boolean }> => {
+    return apiClient.put<{ enabled: boolean }>('/settings/auto-update-on-start', {
+      value: String(enabled),
+      data_type: 'bool',
+    })
+  },
+
+  /**
+   * Get app info (mode, version, data_dir)
+   */
+  getAppInfo: async (): Promise<{ mode: string; version: string; data_dir: string }> => {
+    return apiClient.get<{ mode: string; version: string; data_dir: string }>('/app-info')
+  },
+
   /**
    * Get all settings
    */
@@ -201,6 +238,65 @@ export const settingsApi = {
     )
 
     return response.data
+  },
+
+  /**
+   * Upload detection CSV with streaming progress via NDJSON.
+   */
+  uploadDetectionsStream: async function* (
+    file: File,
+  ): AsyncGenerator<DetectionUploadProgressEvent, void, unknown> {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const token = localStorage.getItem('auth_token')
+    const response = await fetch('/api/v1/settings/detections/upload-stream', {
+      method: 'POST',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const text = await response.text()
+      let detail = text
+      try {
+        detail = JSON.parse(text).detail || text
+      } catch {
+        // use raw text
+      }
+      throw new Error(detail)
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('No response body')
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (line.trim()) {
+          const event = JSON.parse(line) as DetectionUploadProgressEvent
+          yield event
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const event = JSON.parse(buffer) as DetectionUploadProgressEvent
+      yield event
+    }
   },
 
   /**

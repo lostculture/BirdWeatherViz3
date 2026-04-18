@@ -15,10 +15,12 @@ import {
   stationsApi,
   weatherApi,
 } from '../api'
-import type { TaxonomyStats } from '../api/settings'
+import type { DetectionUploadProgressEvent, TaxonomyStats } from '../api/settings'
 import type { WeatherStationSetting, WeatherStats } from '../api/weather'
+import SyncAllButton from '../components/SyncAllButton'
 import ChangePasswordModal from '../components/auth/ChangePasswordModal'
 import PasswordModal from '../components/auth/PasswordModal'
+import { useSync } from '../context/SyncContext'
 import type { StationCreate, StationResponse, StationUpdate } from '../types/api'
 
 interface StationFormData {
@@ -29,6 +31,9 @@ interface StationFormData {
 }
 
 const Configuration: React.FC = () => {
+  // Shared sync state
+  const { syncing: syncingAll, progress: syncProgress, details: syncDetails } = useSync()
+
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
@@ -41,12 +46,12 @@ const Configuration: React.FC = () => {
   const [showForm, setShowForm] = useState(false)
   const [editingStation, setEditingStation] = useState<StationResponse | null>(null)
   const [syncing, setSyncing] = useState<{ [key: number]: boolean }>({})
-  const [syncingAll, setSyncingAll] = useState(false)
-  const [syncProgress, setSyncProgress] = useState<string>('')
-  const [syncDetails, setSyncDetails] = useState<
-    Array<{ station_name: string; detections_added: number; status: string }>
-  >([])
-  const [showSyncProgress, setShowSyncProgress] = useState(false)
+  const [syncDismissed, setSyncDismissed] = useState(false)
+  const showSyncProgress = !syncDismissed && (syncingAll || syncDetails.length > 0)
+  // Reset dismiss when a new sync starts
+  useEffect(() => {
+    if (syncingAll) setSyncDismissed(false)
+  }, [syncingAll])
   const [formData, setFormData] = useState<StationFormData>({
     station_id: '',
     name: '',
@@ -58,12 +63,20 @@ const Configuration: React.FC = () => {
   const [taxonomyStats, setTaxonomyStats] = useState<TaxonomyStats | null>(null)
   const [uploadingTaxonomy, setUploadingTaxonomy] = useState(false)
   const [uploadingDetections, setUploadingDetections] = useState(false)
+  const [detectionProgress, setDetectionProgress] = useState<DetectionUploadProgressEvent | null>(
+    null,
+  )
+  const [detectionError, setDetectionError] = useState<string | null>(null)
 
   // Weather state
   const [weatherStats, setWeatherStats] = useState<WeatherStats | null>(null)
   const [weatherStation, setWeatherStation] = useState<WeatherStationSetting | null>(null)
   const [syncingWeather, setSyncingWeather] = useState(false)
   const [settingWeatherStation, setSettingWeatherStation] = useState(false)
+
+  // Auto-update state
+  const [autoUpdateOnStart, setAutoUpdateOnStart] = useState(true)
+  const [savingAutoUpdate, setSavingAutoUpdate] = useState(false)
 
   // Display units state
   const [temperatureUnit, setTemperatureUnit] = useState<'imperial' | 'metric'>('imperial')
@@ -77,19 +90,41 @@ const Configuration: React.FC = () => {
   const taxonomyFileRef = useRef<HTMLInputElement>(null)
   const detectionsFileRef = useRef<HTMLInputElement>(null)
 
-  // Check authentication on mount
+  // App mode (web vs desktop)
+  const [isDesktop, setIsDesktop] = useState(false)
+
+  // Check mode and authentication on mount
   useEffect(() => {
-    if (authApi.isAuthenticated()) {
-      setIsAuthenticated(true)
-      loadStations()
-      loadSettings()
-      loadWeatherData()
-      loadDisplaySettings()
-    } else {
-      setIsAuthenticated(false)
-      setShowPasswordModal(true)
-      setLoading(false)
+    const init = async () => {
+      // Check if we're in desktop mode (no auth needed)
+      try {
+        const info = await settingsApi.getAppInfo()
+        if (info.mode === 'desktop') {
+          setIsDesktop(true)
+          setIsAuthenticated(true)
+          loadStations()
+          loadSettings()
+          loadWeatherData()
+          loadDisplaySettings()
+          return
+        }
+      } catch {
+        // Fall through to normal auth check
+      }
+
+      if (authApi.isAuthenticated()) {
+        setIsAuthenticated(true)
+        loadStations()
+        loadSettings()
+        loadWeatherData()
+        loadDisplaySettings()
+      } else {
+        setIsAuthenticated(false)
+        setShowPasswordModal(true)
+        setLoading(false)
+      }
     }
+    init()
   }, [])
 
   const handleAuthSuccess = () => {
@@ -115,16 +150,32 @@ const Configuration: React.FC = () => {
 
   const loadDisplaySettings = async () => {
     try {
-      const [tempUnit, windUnit, birdSources] = await Promise.all([
+      const [tempUnit, windUnit, birdSources, autoUpdate] = await Promise.all([
         settingsApi.getTemperatureUnit(),
         settingsApi.getWindSpeedUnit(),
         settingsApi.getBirdInfoSources(),
+        settingsApi.getAutoUpdateOnStart(),
       ])
       setTemperatureUnit(tempUnit)
       setWindSpeedUnit(windUnit)
       setBirdInfoSources(birdSources)
+      setAutoUpdateOnStart(autoUpdate)
     } catch (err) {
       console.error('Failed to load display settings:', err)
+    }
+  }
+
+  const handleToggleAutoUpdate = async () => {
+    const newValue = !autoUpdateOnStart
+    setAutoUpdateOnStart(newValue)
+    setSavingAutoUpdate(true)
+    try {
+      await settingsApi.setAutoUpdateOnStart(newValue)
+    } catch (err: any) {
+      setAutoUpdateOnStart(!newValue) // revert on failure
+      alert(`Failed to save: ${err.message || 'Unknown error'}`)
+    } finally {
+      setSavingAutoUpdate(false)
     }
   }
 
@@ -344,78 +395,6 @@ const Configuration: React.FC = () => {
     }
   }
 
-  const handleSyncAllStations = async () => {
-    setSyncingAll(true)
-    setSyncProgress('Starting sync...')
-    setSyncDetails([])
-    setShowSyncProgress(true)
-
-    try {
-      for await (const event of stationsApi.syncAllStream()) {
-        switch (event.type) {
-          case 'start':
-            setSyncProgress(event.message || 'Starting...')
-            break
-          case 'progress':
-            setSyncProgress(event.message || 'Processing...')
-            break
-          case 'station_complete':
-            setSyncProgress(
-              `Completed: ${event.station_name} (+${event.detections_added} detections)`,
-            )
-            setSyncDetails((prev) => [
-              ...prev,
-              {
-                station_name: event.station_name || '',
-                detections_added: event.detections_added || 0,
-                status: event.status || '',
-              },
-            ])
-            break
-          case 'station_error':
-            setSyncProgress(`Error syncing ${event.station_name}`)
-            setSyncDetails((prev) => [
-              ...prev,
-              {
-                station_name: event.station_name || '',
-                detections_added: 0,
-                status: `error: ${event.error}`,
-              },
-            ])
-            break
-          case 'weather_complete':
-            setSyncProgress(
-              event.days_fetched
-                ? `Weather: ${event.days_fetched} days synced`
-                : 'Weather: Already up to date',
-            )
-            break
-          case 'weather_error':
-            setSyncProgress(`Weather sync failed: ${event.error}`)
-            break
-          case 'complete':
-            setSyncProgress(`Complete! ${event.total_detections_added} new detections`)
-            break
-        }
-      }
-
-      await loadStations()
-      await loadWeatherData()
-
-      // Keep progress visible for a moment before hiding
-      setTimeout(() => {
-        setShowSyncProgress(false)
-      }, 3000)
-    } catch (err: any) {
-      setSyncProgress(`Error: ${err.message || 'Unknown error'}`)
-      setTimeout(() => {
-        setShowSyncProgress(false)
-      }, 5000)
-    } finally {
-      setSyncingAll(false)
-    }
-  }
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
     const checked = (e.target as HTMLInputElement).checked
@@ -450,18 +429,41 @@ const Configuration: React.FC = () => {
     if (!file) return
 
     setUploadingDetections(true)
+    setDetectionProgress(null)
+    setDetectionError(null)
     try {
-      const result = await settingsApi.uploadDetections(file)
-      alert(result.message)
-      await loadStations() // Refresh to show updated stats
+      let lastEvent: DetectionUploadProgressEvent | null = null
+      for await (const event of settingsApi.uploadDetectionsStream(file)) {
+        if (event.type === 'error') {
+          setDetectionError(event.message || 'Upload failed')
+          break
+        }
+        setDetectionProgress(event)
+        lastEvent = event
+      }
+      if (lastEvent?.type === 'complete') {
+        await loadStations()
+      }
     } catch (err: any) {
-      alert(`Failed to upload detections: ${err.message || 'Unknown error'}`)
+      const msg = err.message || 'Unknown error'
+      // Convert ms timeouts to seconds for display
+      const displayMsg = msg.replace(
+        /(\d+)ms/g,
+        (_: string, ms: string) => `${Math.round(Number(ms) / 1000)}s`,
+      )
+      setDetectionError(`Upload failed: ${displayMsg}`)
     } finally {
       setUploadingDetections(false)
       if (detectionsFileRef.current) {
         detectionsFileRef.current.value = ''
       }
     }
+  }
+
+  const handleRetryDetections = () => {
+    setDetectionProgress(null)
+    setDetectionError(null)
+    detectionsFileRef.current?.click()
   }
 
   // Show password modal if not authenticated
@@ -486,31 +488,32 @@ const Configuration: React.FC = () => {
           <p className="text-gray-600 mt-2">Manage stations, sync data, and configure settings</p>
         </div>
         <div className="flex space-x-3">
-          <button type="button"
-            onClick={handleSyncAllStations}
-            disabled={syncingAll || stations.length === 0}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
-          >
-            {syncingAll ? 'Syncing All...' : 'Sync All Stations'}
-          </button>
-          <button type="button"
+          <SyncAllButton variant="page" disabled={stations.length === 0} />
+          <button
+            type="button"
             onClick={handleAddStation}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium"
           >
             Add Station
           </button>
-          <button type="button"
-            onClick={() => setShowChangePasswordModal(true)}
-            className="bg-amber-100 hover:bg-amber-200 text-amber-800 px-4 py-2 rounded-lg font-medium"
-          >
-            Change Password
-          </button>
-          <button type="button"
-            onClick={handleLogout}
-            className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium"
-          >
-            Logout
-          </button>
+          {!isDesktop && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowChangePasswordModal(true)}
+                className="bg-amber-100 hover:bg-amber-200 text-amber-800 px-4 py-2 rounded-lg font-medium"
+              >
+                Change Password
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium"
+              >
+                Logout
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -548,8 +551,9 @@ const Configuration: React.FC = () => {
               )}
             </div>
             {!syncingAll && (
-              <button type="button"
-                onClick={() => setShowSyncProgress(false)}
+              <button
+                type="button"
+                onClick={() => setSyncDismissed(true)}
                 className="text-blue-600 hover:text-blue-800"
               >
                 Close
@@ -569,7 +573,9 @@ const Configuration: React.FC = () => {
               </h2>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label htmlFor="station-form-id" className="block text-sm font-medium mb-1">BirdWeather Station ID *</label>
+                  <label htmlFor="station-form-id" className="block text-sm font-medium mb-1">
+                    BirdWeather Station ID *
+                  </label>
                   <input
                     id="station-form-id"
                     type="text"
@@ -584,7 +590,9 @@ const Configuration: React.FC = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="station-form-name" className="block text-sm font-medium mb-1">Station Name *</label>
+                  <label htmlFor="station-form-name" className="block text-sm font-medium mb-1">
+                    Station Name *
+                  </label>
                   <input
                     id="station-form-name"
                     type="text"
@@ -598,17 +606,23 @@ const Configuration: React.FC = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="station-form-timezone" className="block text-sm font-medium mb-1">Timezone *</label>
-                  <input
+                  <label htmlFor="station-form-timezone" className="block text-sm font-medium mb-1">
+                    Timezone *
+                  </label>
+                  <select
                     id="station-form-timezone"
-                    type="text"
                     name="timezone"
                     value={formData.timezone}
                     onChange={handleInputChange}
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                    placeholder="America/New_York"
-                  />
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    {Intl.supportedValuesOf('timeZone').map((tz) => (
+                      <option key={tz} value={tz}>
+                        {tz.replace(/_/g, ' ')}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="flex items-center">
@@ -697,20 +711,23 @@ const Configuration: React.FC = () => {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex justify-end space-x-2">
-                          <button type="button"
+                          <button
+                            type="button"
                             onClick={() => handleSyncStation(station.id)}
                             disabled={syncing[station.id]}
                             className="px-3 py-1 text-sm bg-green-100 hover:bg-green-200 text-green-800 rounded font-medium disabled:opacity-50"
                           >
                             {syncing[station.id] ? 'Syncing...' : 'Sync'}
                           </button>
-                          <button type="button"
+                          <button
+                            type="button"
                             onClick={() => handleEditStation(station)}
                             className="px-3 py-1 text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 rounded font-medium"
                           >
                             Edit
                           </button>
-                          <button type="button"
+                          <button
+                            type="button"
                             onClick={() => handleDeleteStation(station.id)}
                             className="px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-800 rounded font-medium"
                           >
@@ -843,8 +860,53 @@ const Configuration: React.FC = () => {
               disabled={uploadingDetections || stations.length === 0}
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100 disabled:opacity-50"
             />
-            {uploadingDetections && <span className="text-sm text-gray-600">Uploading...</span>}
           </div>
+
+          {/* Progress bar */}
+          {uploadingDetections && detectionProgress && (
+            <div className="mt-4">
+              <div className="flex justify-between text-sm text-gray-600 mb-1">
+                <span>
+                  {detectionProgress.type === 'start'
+                    ? `Starting... ${detectionProgress.total_lines?.toLocaleString()} lines to process`
+                    : `Processing: ${detectionProgress.lines_processed?.toLocaleString()} / ${detectionProgress.total_lines?.toLocaleString()} lines`}
+                </span>
+                <span>
+                  {detectionProgress.detections_added != null &&
+                    `${detectionProgress.detections_added.toLocaleString()} added, ${detectionProgress.detections_skipped?.toLocaleString()} skipped`}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3">
+                <div
+                  className="bg-green-600 h-3 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${detectionProgress.total_lines ? Math.round(((detectionProgress.lines_processed || 0) / detectionProgress.total_lines) * 100) : 0}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Completion message */}
+          {!uploadingDetections && detectionProgress?.type === 'complete' && (
+            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+              {detectionProgress.message}
+            </div>
+          )}
+
+          {/* Error with retry */}
+          {detectionError && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-800">{detectionError}</p>
+              <button
+                type="button"
+                onClick={handleRetryDetections}
+                className="mt-2 text-sm font-medium text-red-700 hover:text-red-900 underline"
+              >
+                Try again
+              </button>
+            </div>
+          )}
 
           {stations.length === 0 && (
             <p className="text-sm text-amber-600 mt-2">
@@ -899,7 +961,8 @@ const Configuration: React.FC = () => {
               </div>
 
               <div className="mt-4">
-                <button type="button"
+                <button
+                  type="button"
                   onClick={handleSyncWeather}
                   disabled={syncingWeather || !weatherStation?.station_id}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
@@ -948,6 +1011,27 @@ const Configuration: React.FC = () => {
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Sync Settings */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="p-6">
+          <h2 className="text-xl font-semibold mb-4">Sync Settings</h2>
+          <label className="flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoUpdateOnStart}
+              onChange={handleToggleAutoUpdate}
+              disabled={savingAutoUpdate}
+              className="w-4 h-4 text-blue-600 rounded"
+            />
+            <span className="ml-2 font-medium">Auto-sync stations when app starts</span>
+          </label>
+          <p className="text-sm text-gray-500 mt-1 ml-6">
+            When enabled, all active stations will be synced automatically each time you open the
+            app.
+          </p>
         </div>
       </div>
 
@@ -1014,7 +1098,8 @@ const Configuration: React.FC = () => {
           </div>
 
           <div className="mt-4">
-            <button type="button"
+            <button
+              type="button"
               onClick={handleSaveUnits}
               disabled={savingUnits}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
@@ -1062,7 +1147,8 @@ const Configuration: React.FC = () => {
           ))}
 
           <div className="flex items-center space-x-3 mt-4">
-            <button type="button"
+            <button
+              type="button"
               onClick={handleSaveBirdSources}
               disabled={savingBirdSources}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
@@ -1075,21 +1161,24 @@ const Configuration: React.FC = () => {
           <div className="mt-4 pt-4 border-t">
             <h4 className="text-sm font-medium text-gray-600 mb-2">Quick Presets</h4>
             <div className="flex space-x-2">
-              <button type="button"
+              <button
+                type="button"
                 onClick={() => handleBirdSourcePreset('north_america')}
                 disabled={savingBirdSources}
                 className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-medium disabled:opacity-50"
               >
                 North America
               </button>
-              <button type="button"
+              <button
+                type="button"
                 onClick={() => handleBirdSourcePreset('uk')}
                 disabled={savingBirdSources}
                 className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-medium disabled:opacity-50"
               >
                 United Kingdom
               </button>
-              <button type="button"
+              <button
+                type="button"
                 onClick={() => handleBirdSourcePreset('global')}
                 disabled={savingBirdSources}
                 className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-medium disabled:opacity-50"
