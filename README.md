@@ -21,14 +21,22 @@ Bird detection visualization and analytics platform for [BirdWeather](https://ww
 
 **No Docker, no Python, no terminal required.** Download, extract, run.
 
-1. Go to [**GitHub Releases**](https://github.com/lostculture/BirdWeatherViz3/releases)
-2. Download the archive for your OS (Windows `.zip`, macOS `.zip`, Linux `.tar.gz`)
-3. Extract it
-4. Run `BirdWeatherViz3` (or `BirdWeatherViz3.app` on macOS)
+| Platform | Download |
+|----------|----------|
+| Windows (x64) | [birdweatherviz3-windows-x64.zip](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.0.0/birdweatherviz3-windows-x64.zip) |
+| macOS (Apple Silicon — M1/M2/M3/M4) | [birdweatherviz3-macos-arm64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.0.0/birdweatherviz3-macos-arm64.tar.gz) |
+| macOS (Intel) | [birdweatherviz3-macos-x64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.0.0/birdweatherviz3-macos-x64.tar.gz) |
+| Linux (x64) | [birdweatherviz3-linux-x64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.0.0/birdweatherviz3-linux-x64.tar.gz) |
+
+1. Download the archive for your OS above
+2. Extract it
+3. Run `BirdWeatherViz3` (or `./BirdWeatherViz3` on macOS/Linux)
 
 A native window opens with the full dashboard. Everything runs locally on your machine.
 
-For platform-specific notes (WebView2, Gatekeeper, WebKitGTK), data locations, and building from source, see [**Desktop App Guide**](docs/README-desktop.md).
+**macOS users:** The app is unsigned. Right-click → Open on first launch, or run `xattr -cr BirdWeatherViz3` in Terminal. See the [Desktop App Guide](docs/README-desktop.md) for details.
+
+For first-time setup (adding stations, syncing data), platform notes, and building from source, see the [**Desktop App Guide**](docs/README-desktop.md).
 
 ---
 
