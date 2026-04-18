@@ -1,104 +1,55 @@
 # BirdWeatherViz3 🐦
 
-**Version:** 1.4.4
+**Version:** 2.0.0
 
-Next-generation bird detection visualization application built with FastAPI + React, with Docker deployment and optional public access via Cloudflare Tunnel.
+Bird detection visualization and analytics platform for [BirdWeather](https://www.birdweather.com) stations. 25+ interactive charts, weather correlation, multi-station support, and automatic data sync.
 
-## Overview
+## Choose Your Install
 
-BirdWeatherViz3 is a modern, API-first bird monitoring analytics platform that visualizes and analyzes data from BirdWeather stations. It preserves all 25+ visualization types from the original Streamlit version while providing improved architecture, performance, and maintainability.
+| | Desktop App | Docker (Server) |
+|---|---|---|
+| **Best for** | Personal use on your own computer | Always-on server, remote/public access |
+| **Install** | Download, extract, double-click | `docker compose up` |
+| **Auth** | None needed (localhost only) | Password-protected (JWT + bcrypt) |
+| **Data** | OS user data directory | Docker volume |
+| **Platforms** | Windows, macOS, Linux | Any Docker host |
+| **Get it** | [**Download Desktop**](https://github.com/lostculture/BirdWeatherViz3/releases) | [Docker Quick Start](#docker-quick-start) below |
 
-## Features
+---
 
-✅ **Multi-Station Support** - Monitor multiple BirdWeather stations simultaneously
-✅ **25+ Visualizations** - Comprehensive charts including line charts, rose plots, KDE plots, ridge plots, UpSet plots
-✅ **Intelligent Auto-Update** - Automatically fetch new detections with smart backfill (30 days)
-✅ **Weather Integration** - Historical and current weather data for all detection days
-✅ **Notification System** - Apprise integration supporting 80+ notification services
-✅ **Password Protection** - JWT authentication with bcrypt password hashing for configuration pages
-✅ **Rate Limiting** - Protection against brute force attacks on login endpoints
-✅ **Public Deployment** - Optional Cloudflare Tunnel integration for secure public access
-✅ **SQLite Database** - Zero configuration, file-based database
-✅ **RESTful API** - Clean FastAPI backend with OpenAPI documentation
-✅ **Modern Frontend** - React + TypeScript with responsive design
-✅ **Export Capabilities** - CSV/JSON export for all data
+## Desktop App
 
-## Technology Stack
+**No Docker, no Python, no terminal required.** Download, extract, run.
 
-### Backend
-- **Framework:** FastAPI 0.109
-- **Database:** SQLite + SQLAlchemy 2.0
-- **Data Processing:** Pandas, NumPy, SciPy
-- **Visualization:** Plotly (data generation)
-- **Scheduling:** APScheduler
-- **Notifications:** Apprise
-- **Authentication:** JWT + bcrypt
+1. Go to [**GitHub Releases**](https://github.com/lostculture/BirdWeatherViz3/releases)
+2. Download the archive for your OS (Windows `.zip`, macOS `.zip`, Linux `.tar.gz`)
+3. Extract it
+4. Run `BirdWeatherViz3` (or `BirdWeatherViz3.app` on macOS)
 
-### Frontend
-- **Framework:** React 18 + TypeScript
-- **Build Tool:** Vite 5
-- **Routing:** React Router v6
-- **State:** Zustand
-- **Charts:** react-plotly.js, D3.js
-- **Styling:** Tailwind CSS
-- **API Client:** Axios
+A native window opens with the full dashboard. Everything runs locally on your machine.
 
-### Deployment
-- **Container:** Docker (multi-stage build)
-- **Web Server:** Nginx
-- **Process Manager:** Supervisor
-- **Volumes:** Persistent /data mount
+For platform-specific notes (WebView2, Gatekeeper, WebKitGTK), data locations, and building from source, see [**Desktop App Guide**](docs/README-desktop.md).
 
-## Project Structure
+---
 
-```
-BirdWeatherViz3/
-├── backend/                      # FastAPI application
-│   ├── app/
-│   │   ├── api/v1/              # API endpoints
-│   │   ├── core/                # Rate limiting, security
-│   │   ├── db/models/           # SQLAlchemy models
-│   │   ├── schemas/             # Pydantic schemas
-│   │   ├── services/            # Business logic
-│   │   ├── repositories/        # Data access layer
-│   │   └── utils/               # Utilities
-│   ├── Dockerfile               # Backend container
-│   ├── reset_password.py        # Password reset CLI
-│   └── requirements.txt         # Python dependencies
-│
-├── frontend/                     # React application
-│   ├── src/
-│   │   ├── api/                 # API client + auth
-│   │   ├── components/          # React components
-│   │   ├── pages/               # Page components
-│   │   ├── hooks/               # Custom React hooks
-│   │   └── stores/              # State management
-│   ├── Dockerfile               # Frontend container
-│   ├── nginx.conf               # Nginx configuration
-│   └── package.json             # Node dependencies
-│
-├── docker-compose.yml            # Local development
-├── docker-compose.public.yml     # Public deployment (Cloudflare)
-├── docker-compose.public-test.yml # Public testing (with ports)
-├── .env.public.example            # Public instance env template
-│
-└── LICENSE                        # MIT License
-```
+## Docker Quick Start
 
-## Quick Start
+**For server deployments, always-on monitoring, or public access via Cloudflare Tunnel.**
 
-**Never used a terminal before? Don't worry — follow these steps exactly and you'll be up and running in about 10 minutes.** You don't need to install Python, Node.js, or anything else. The whole app runs inside Docker.
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (free). You don't need to install Python, Node.js, or anything else.
+
+**Never used a terminal before? Don't worry — follow these steps exactly and you'll be up and running in about 10 minutes.**
 
 ### Step 1 — Install Docker Desktop
 
-Docker Desktop is a free app from the company Docker that runs the BirdWeather software for you. Pick the download for your computer:
+Pick the download for your computer:
 
 - **Mac (Apple Silicon — M1/M2/M3/M4):** <https://desktop.docker.com/mac/main/arm64/Docker.dmg>
 - **Mac (Intel):** <https://desktop.docker.com/mac/main/amd64/Docker.dmg>
 - **Windows 10/11:** <https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe>
 - **Linux:** <https://docs.docker.com/desktop/install/linux-install/>
 
-Open the downloaded file and follow the installer. When it's finished, **launch Docker Desktop** and wait until the little whale icon in your menu bar / system tray stops animating — that means Docker is ready.
+Install and **launch Docker Desktop**. Wait until the whale icon in your menu bar / system tray stops animating — that means Docker is ready.
 
 ### Step 2 — Open a Terminal window
 
@@ -168,6 +119,21 @@ Your data (stations, detection history, settings) is stored in a Docker volume a
 ---
 
 ## Other Install Options
+
+<details>
+<summary><b>Desktop app from source</b> (no PyInstaller needed)</summary>
+
+Requires **Python 3.11+** and **[Bun](https://bun.sh)**:
+
+```bash
+git clone https://github.com/lostculture/BirdWeatherViz3 && cd BirdWeatherViz3
+cd frontend && bun install && bun run build && cd ..
+cd backend && pip install -r requirements.txt -r requirements-desktop.txt
+python -m app.desktop
+```
+
+See [Desktop App Guide](docs/README-desktop.md) for details.
+</details>
 
 <details>
 <summary><b>Public deployment with Cloudflare Tunnel</b> (no port forwarding)</summary>
