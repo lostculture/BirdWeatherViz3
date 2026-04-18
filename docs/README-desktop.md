@@ -45,8 +45,27 @@ user data directory on first launch.
 
 ### macOS
 - Uses WKWebView (built-in, no extra install).
-- Unsigned `.app` bundle — right-click → Open on first launch to bypass
-  Gatekeeper.
+- The app is unsigned — macOS Gatekeeper will block it on first launch.
+  Use one of these methods to open it:
+
+  **Method 1 — Right-click (recommended):**
+  1. Right-click (or Control-click) on `BirdWeatherViz3.app`
+  2. Select **Open** from the context menu
+  3. Click **Open** in the dialog that appears
+
+  **Method 2 — System Settings:**
+  1. Try to open the app normally (it will be blocked)
+  2. Go to **System Settings → Privacy & Security**
+  3. Scroll down to find the message about BirdWeatherViz3
+  4. Click **Open Anyway**
+
+  **Method 3 — Terminal (removes quarantine flag):**
+  ```
+  xattr -cr /path/to/BirdWeatherViz3.app
+  ```
+
+  You only need to do this once — macOS remembers your choice after the
+  first launch.
 
 ### Linux
 - Requires WebKitGTK.  On Debian/Ubuntu:
