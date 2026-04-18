@@ -6,7 +6,15 @@ A double-click desktop application that runs the full BirdWeatherViz3 stack
 ## Quick start
 
 1. Download the latest release for your OS from
-   [GitHub Releases](https://github.com/lostculture/BirdWeatherViz3/releases).
+   [GitHub Releases](https://github.com/lostculture/BirdWeatherViz3/releases):
+
+   | Platform | File |
+   |----------|------|
+   | Windows (x64) | `birdweatherviz3-windows-x64.zip` |
+   | macOS (Apple Silicon — M1/M2/M3/M4) | `birdweatherviz3-macos-arm64.tar.gz` |
+   | macOS (Intel) | `birdweatherviz3-macos-x64.tar.gz` |
+   | Linux (x64) | `birdweatherviz3-linux-x64.tar.gz` |
+
 2. Extract the archive.
 3. Run `BirdWeatherViz3` (or `BirdWeatherViz3.app` on macOS).
 

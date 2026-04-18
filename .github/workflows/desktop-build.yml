@@ -20,6 +20,9 @@ jobs:
           - os: macos-latest
             artifact: birdweatherviz3-macos-arm64
             ext: .tar.gz
+          - os: macos-13
+            artifact: birdweatherviz3-macos-x64
+            ext: .tar.gz
           - os: ubuntu-latest
             artifact: birdweatherviz3-linux-x64
             ext: .tar.gz
