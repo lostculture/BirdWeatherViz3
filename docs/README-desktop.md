@@ -21,6 +21,62 @@ A double-click desktop application that runs the full BirdWeatherViz3 stack
 The app opens a native window, starts a local web server on a random port, and
 connects to it automatically.  No browser needed — everything runs locally.
 
+## First-time setup
+
+After launching the app for the first time, you'll see an empty dashboard.
+Follow these steps to get your data flowing:
+
+### 1. Add your BirdWeather station
+
+1. Click **Config** in the navigation bar
+2. Click **Add Station**
+3. Enter your **BirdWeather Station ID** — find this on your station's page at
+   [app.birdweather.com](https://app.birdweather.com) (it's the number in the URL,
+   e.g. `https://app.birdweather.com/stations/1234` → station ID is `1234`)
+4. Give it a **Name** (e.g. "Backyard PUC")
+5. Select your **Timezone** from the dropdown (e.g. "America/New_York")
+6. Click **Add Station**
+
+### 2. Sync detections
+
+Click the **Sync All** button (circular arrows icon in the header, or the
+button on the Config page). This pulls your detection history from BirdWeather.
+The first sync may take a minute depending on how much data your station has.
+
+### 3. Upload eBird taxonomy (optional but recommended)
+
+The eBird taxonomy file adds species codes, family groupings, and improves
+species linking across the app.
+
+1. Download the eBird taxonomy CSV from
+   [eBird](https://www.birds.cornell.edu/clementschecklist/download/) —
+   click the "Download eBird Taxonomy" CSV link
+2. In the Config page, scroll to **eBird Taxonomy** and click **Choose File**
+3. Select the downloaded CSV — the upload runs automatically
+
+### 4. Set up weather data
+
+Weather data enables temperature and wind correlation charts in the Analytics page.
+
+1. In Config, scroll to **Weather Data**
+2. Under **Weather Location**, select your station from the dropdown
+   (it uses your station's GPS coordinates from the synced detections)
+3. Click **Sync Weather Data** — this fetches historical weather from
+   [Open-Meteo](https://open-meteo.com) for every day you have detections
+
+### 5. Explore your data
+
+You're all set! Navigate through the pages:
+
+- **Daily Detections** — Detection counts and trends by day
+- **Species Analysis** — Diversity trends and discovery curves
+- **Species Details** — Deep dive into individual species with activity patterns
+- **Species List** — All species with family groups, charts, and comparisons
+- **Stations** — Station comparison and species overlap
+- **Analytics** — Weather correlation and seasonal patterns
+
+Data syncs automatically on app launch (configurable in Config → Sync Settings).
+
 ## Data locations
 
 All data is stored in your OS-standard user data directory:
