@@ -1,6 +1,6 @@
 {
   "name": "birdweatherviz3-frontend",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "BirdWeatherViz3 - Next Generation Bird Detection Visualization Frontend",
   "type": "module",
   "scripts": {

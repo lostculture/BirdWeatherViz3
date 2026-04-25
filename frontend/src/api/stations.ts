@@ -59,15 +59,19 @@ export const stationsApi = {
   },
 
   /**
-   * Sync detection data from BirdWeather API (intelligent sync)
+   * Sync detection data from BirdWeather API (intelligent sync).
+   * Pass `forceFull: true` to paginate BirdWeather's full history — use to
+   * recover from a station whose history was truncated by an earlier sync.
    */
   sync: async (
     stationId: number,
+    forceFull?: boolean,
   ): Promise<{ success: boolean; detections_added: number; message: string }> => {
+    const qs = forceFull ? '?force_full=true' : ''
     return apiClient.post<{ success: boolean; detections_added: number; message: string }>(
-      `/stations/${stationId}/sync`,
+      `/stations/${stationId}/sync${qs}`,
       undefined,
-      { timeout: 300000 }, // 5 minute timeout for intelligent sync
+      { timeout: forceFull ? 1800000 : 300000 }, // 30 min for full re-sync
     )
   },
 
@@ -95,16 +99,27 @@ export const stationsApi = {
    */
   syncAllStream: async function* (
     onProgress?: (event: SyncProgressEvent) => void,
+    forceFull?: boolean,
   ): AsyncGenerator<SyncProgressEvent, void, unknown> {
-    const response = await fetch('/api/v1/stations/sync-all-stream', {
+    const token = localStorage.getItem('auth_token')
+    const qs = forceFull ? '?force_full=true' : ''
+    const response = await fetch(`/api/v1/stations/sync-all-stream${qs}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
       },
     })
 
     if (!response.ok) {
-      throw new Error(`Sync failed: ${response.statusText}`)
+      let detail = response.statusText
+      try {
+        const body = await response.text()
+        detail = JSON.parse(body).detail || body || detail
+      } catch {
+        // use statusText
+      }
+      throw new Error(`Sync failed: ${detail}`)
     }
 
     const reader = response.body?.getReader()
