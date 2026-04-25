@@ -28,7 +28,10 @@ const getBirdImageUrl = (scientificName: string, commonName?: string): string =>
 // Species card component
 const SpeciesCard: React.FC<{ species: SpeciesResponse }> = ({ species }) => {
   const [imageError, setImageError] = useState(false)
-  const imageUrl = getBirdImageUrl(species.scientific_name, species.common_name)
+  const imageUrl = getBirdImageUrl(
+    species.scientific_name,
+    species.english_name || species.common_name,
+  )
 
   return (
     <div className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-white">

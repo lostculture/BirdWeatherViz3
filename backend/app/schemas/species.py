@@ -5,18 +5,28 @@ Request/response models for species endpoints.
 Version: 1.0.0
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime, date
 from typing import Optional
+
+from app.schemas._localize import (
+    localize_common_name,
+    localize_species_common_name,
+)
 
 
 class SpeciesBase(BaseModel):
     """Base species schema with common fields."""
 
-    common_name: str = Field(..., max_length=200, description="Common name")
+    common_name: str = Field(..., max_length=200, description="Common name (localized if taxonomy language is set)")
     scientific_name: str = Field(..., max_length=200, description="Scientific name")
     family: Optional[str] = Field(None, max_length=200, description="Bird family")
     order: Optional[str] = Field(None, max_length=200, description="Bird order")
+    english_name: Optional[str] = Field(None, max_length=200, description="Canonical English common name (for URL lookups)")
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
 
 
 class SpeciesCreate(SpeciesBase):
@@ -62,6 +72,11 @@ class SpeciesListItem(BaseModel):
     total_detections: int = 0
     first_seen: Optional[date] = None
     last_seen: Optional[date] = None
+    english_name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
 
 
 class SpeciesDiversityTrend(BaseModel):
@@ -88,6 +103,11 @@ class NewSpeciesThisWeek(BaseModel):
     ebird_code: Optional[str] = Field(None, description="eBird species code")
     first_detection_date: date = Field(..., description="First detection date this week")
     detection_count: int = Field(default=0, description="Number of detections this week")
+    english_name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
 
 
 class SpeciesTimeStats(BaseModel):
@@ -114,6 +134,10 @@ class MonthlyChampion(BaseModel):
     species_scientific_name: str = Field(..., description="Scientific name")
     detection_count: int = Field(..., description="Detection count")
 
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_species_common_name(self)
+
 
 class SpeciesConfidenceScatter(BaseModel):
     """Schema for species detection count vs confidence scatter plot."""
@@ -121,3 +145,7 @@ class SpeciesConfidenceScatter(BaseModel):
     species_common_name: str
     detection_count: int
     avg_confidence: float = Field(..., ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_species_common_name(self)

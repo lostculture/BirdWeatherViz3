@@ -491,29 +491,39 @@ async def get_species_by_station(
     from app.db.models.species import Species
     from app.db.models.detection import Detection
     from sqlalchemy import distinct
+    from app.services import taxonomy_translations as _tx
 
     station_repo = StationRepository(db)
     stations = station_repo.get_active_stations()
+
+    lang = _tx.current_language()
 
     result = {}
     for station in stations:
         # Get unique species for this station
         species_query = (
-            db.query(Species.common_name, Species.scientific_name, Species.ebird_code, Species.inat_taxon_id)
+            db.query(
+                Species.id,
+                Species.common_name,
+                Species.scientific_name,
+                Species.ebird_code,
+                Species.inat_taxon_id,
+            )
             .join(Detection, Species.id == Detection.species_id)
             .filter(Detection.station_id == station.id)
             .distinct()
             .order_by(Species.common_name)
         )
-        species_list = [
-            {
-                "common_name": row.common_name,
+        species_list = []
+        for row in species_query.all():
+            localized = _tx.translate_common_name(row.id, row.common_name) if lang else row.common_name
+            species_list.append({
+                "common_name": localized,
+                "english_name": row.common_name if lang and localized != row.common_name else None,
                 "scientific_name": row.scientific_name,
                 "ebird_code": row.ebird_code,
-                "inat_taxon_id": row.inat_taxon_id
-            }
-            for row in species_query.all()
-        ]
+                "inat_taxon_id": row.inat_taxon_id,
+            })
         result[station.name] = species_list
 
     return result

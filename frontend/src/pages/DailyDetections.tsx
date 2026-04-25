@@ -54,7 +54,10 @@ const SpeciesCard: React.FC<{
   birdLinks: Array<{ name: string; url: string; source_id: string }>
 }> = ({ species, birdLinks }) => {
   const [imageError, setImageError] = useState(false)
-  const imageUrl = getBirdImageUrl(species.scientific_name, species.common_name)
+  const imageUrl = getBirdImageUrl(
+    species.scientific_name,
+    species.english_name || species.common_name,
+  )
 
   return (
     <div className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-white">
@@ -473,6 +476,8 @@ const DailyDetections: React.FC = () => {
                 species.scientific_name,
                 species.ebird_code,
                 birdInfoSources,
+                undefined,
+                species.english_name,
               )
               return (
                 <SpeciesCard

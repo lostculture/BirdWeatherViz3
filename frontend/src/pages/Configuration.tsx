@@ -62,6 +62,20 @@ const Configuration: React.FC = () => {
   // Settings state
   const [taxonomyStats, setTaxonomyStats] = useState<TaxonomyStats | null>(null)
   const [uploadingTaxonomy, setUploadingTaxonomy] = useState(false)
+  const [taxonomyLanguage, setTaxonomyLanguageState] = useState<string>('en')
+  const [savingTaxonomyLanguage, setSavingTaxonomyLanguage] = useState(false)
+
+  // DB backup/restore state
+  const [dbInfo, setDbInfo] = useState<{
+    supported: boolean
+    engine: string
+    path?: string
+    exists?: boolean
+    size_bytes?: number
+  } | null>(null)
+  const [exportingDb, setExportingDb] = useState(false)
+  const [importingDb, setImportingDb] = useState(false)
+  const dbImportFileRef = useRef<HTMLInputElement>(null)
   const [uploadingDetections, setUploadingDetections] = useState(false)
   const [detectionProgress, setDetectionProgress] = useState<DetectionUploadProgressEvent | null>(
     null,
@@ -253,10 +267,70 @@ const Configuration: React.FC = () => {
 
   const loadSettings = async () => {
     try {
-      const stats = await settingsApi.getTaxonomyStats()
+      const [stats, dbinfo] = await Promise.all([
+        settingsApi.getTaxonomyStats(),
+        settingsApi.getDbInfo().catch(() => null),
+      ])
       setTaxonomyStats(stats)
+      if (stats.current_language) {
+        setTaxonomyLanguageState(stats.current_language)
+      }
+      if (dbinfo) setDbInfo(dbinfo)
     } catch (err) {
       console.error('Failed to load settings:', err)
+    }
+  }
+
+  const handleExportDatabase = async () => {
+    setExportingDb(true)
+    try {
+      await settingsApi.exportDatabase()
+    } catch (err: any) {
+      alert(`Export failed: ${err.message || 'Unknown error'}`)
+    } finally {
+      setExportingDb(false)
+    }
+  }
+
+  const handleImportDatabase = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const confirmed = window.confirm(
+      `This will REPLACE the current database with the contents of "${file.name}". ` +
+        `The existing database will be saved as a "pre-restore" backup on the server, ` +
+        `but any in-flight changes may be lost. Continue?`,
+    )
+    if (!confirmed) {
+      if (dbImportFileRef.current) dbImportFileRef.current.value = ''
+      return
+    }
+    setImportingDb(true)
+    try {
+      const result = await settingsApi.importDatabase(file)
+      alert(result.message)
+      // Reload so the UI pulls everything from the restored DB.
+      window.location.reload()
+    } catch (err: any) {
+      alert(`Import failed: ${err.message || 'Unknown error'}`)
+    } finally {
+      setImportingDb(false)
+      if (dbImportFileRef.current) dbImportFileRef.current.value = ''
+    }
+  }
+
+  const handleTaxonomyLanguageChange = async (code: string) => {
+    const previous = taxonomyLanguage
+    setTaxonomyLanguageState(code)
+    setSavingTaxonomyLanguage(true)
+    try {
+      await settingsApi.setTaxonomyLanguage(code)
+      // Reload the whole app so every cached API response re-fetches with the new language.
+      window.location.reload()
+    } catch (err: any) {
+      setTaxonomyLanguageState(previous)
+      alert(`Failed to change language: ${err.message || 'Unknown error'}`)
+    } finally {
+      setSavingTaxonomyLanguage(false)
     }
   }
 
@@ -749,17 +823,19 @@ const Configuration: React.FC = () => {
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-4">eBird Taxonomy</h2>
           <p className="text-gray-600 mb-4">
-            Upload eBird taxonomy CSV to enable species codes for eBird links and additional
-            taxonomy data.
+            Upload an eBird taxonomy file to enable eBird species codes, family data, and{' '}
+            <strong>common names in your language</strong>. The multilingual eBird taxonomy
+            (XLSX) includes translations for dozens of languages — once uploaded, choose a
+            language below and all plots will use those names.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <h3 className="font-medium mb-2">Upload Taxonomy CSV</h3>
+              <h3 className="font-medium mb-2">Upload Taxonomy File</h3>
               <div className="flex items-center space-x-3">
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xlsm"
                   onChange={handleTaxonomyUpload}
                   ref={taxonomyFileRef}
                   disabled={uploadingTaxonomy}
@@ -772,23 +848,51 @@ const Configuration: React.FC = () => {
                   disabled={uploadingTaxonomy}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
                 >
-                  {uploadingTaxonomy ? 'Uploading...' : 'Choose CSV File'}
+                  {uploadingTaxonomy ? 'Uploading...' : 'Choose CSV or XLSX'}
                 </button>
                 <span className="text-sm text-gray-500">
                   {taxonomyFileRef.current?.files?.[0]?.name || 'No file selected'}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                Download from{' '}
+                Download the latest file from the{' '}
                 <a
-                  href="https://www.birds.cornell.edu/clementschecklist/download/"
+                  href="https://support.ebird.org/en/support/solutions/articles/48000804865#download-common-names"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-600 hover:underline"
                 >
-                  Cornell Lab Clements Checklist
+                  eBird taxonomy & common names page
                 </a>
+                . For localized names, choose the multi-language <code>.xlsx</code>; the plain
+                taxonomy <code>.csv</code> only adds species codes.
               </p>
+
+              {/* Language selector */}
+              <div className="mt-4">
+                <label htmlFor="taxonomy-language" className="block text-sm font-medium mb-1">
+                  Common name language
+                </label>
+                <select
+                  id="taxonomy-language"
+                  value={taxonomyLanguage}
+                  onChange={(e) => handleTaxonomyLanguageChange(e.target.value)}
+                  disabled={savingTaxonomyLanguage}
+                  className="border rounded-lg px-3 py-2 text-sm w-full max-w-xs"
+                >
+                  <option value="en">English (default)</option>
+                  {(taxonomyStats?.available_languages || []).map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {taxonomyStats?.available_languages && taxonomyStats.available_languages.length
+                    ? `${taxonomyStats.available_languages.length} language(s) available. Changing the selection reloads the app.`
+                    : 'Upload the multi-language XLSX file to unlock language choices.'}
+                </p>
+              </div>
             </div>
 
             <div>
@@ -828,6 +932,20 @@ const Configuration: React.FC = () => {
                       <span className="font-semibold">{taxonomyStats.unique_families}</span>
                     </p>
                   )}
+                  {taxonomyStats.translations_imported !== undefined &&
+                    taxonomyStats.translations_imported > 0 && (
+                      <p>
+                        Localized names:{' '}
+                        <span className="font-semibold">
+                          {taxonomyStats.translations_imported.toLocaleString()}
+                        </span>{' '}
+                        across{' '}
+                        <span className="font-semibold">
+                          {(taxonomyStats.available_languages || []).length}
+                        </span>{' '}
+                        language(s)
+                      </p>
+                    )}
                   {taxonomyStats.last_updated && (
                     <p className="text-gray-500">
                       Last updated: {new Date(taxonomyStats.last_updated).toLocaleDateString()}
@@ -841,6 +959,73 @@ const Configuration: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Database Backup & Restore */}
+      {dbInfo?.supported && (
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6">
+            <h2 className="text-xl font-semibold mb-4">Database Backup & Restore</h2>
+            <p className="text-gray-600 mb-4">
+              Download a full copy of your database, or replace the current database with a
+              previously downloaded backup. Useful before upgrading, or to move your data to a
+              different machine.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="font-medium mb-2">Download backup</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  Save a single <code>.sqlite</code> file containing every station, detection,
+                  species, setting, and translation. Keep it somewhere safe — that's your
+                  full backup.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleExportDatabase}
+                  disabled={exportingDb}
+                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
+                >
+                  {exportingDb ? 'Preparing download…' : 'Download backup'}
+                </button>
+                {dbInfo.size_bytes ? (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Current database size: {(dbInfo.size_bytes / (1024 * 1024)).toFixed(1)} MB
+                  </p>
+                ) : null}
+              </div>
+
+              <div>
+                <h3 className="font-medium mb-2">Restore from backup</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  Replace the <strong>entire</strong> current database with an uploaded{' '}
+                  <code>.sqlite</code> file. The previous database is renamed to a
+                  <code>.pre-restore-…</code> file on disk as an emergency rollback.
+                </p>
+                <input
+                  type="file"
+                  accept=".sqlite,.sqlite3,.db"
+                  onChange={handleImportDatabase}
+                  ref={dbImportFileRef}
+                  disabled={importingDb}
+                  className="hidden"
+                  id="db-import-file-input"
+                />
+                <button
+                  type="button"
+                  onClick={() => dbImportFileRef.current?.click()}
+                  disabled={importingDb}
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
+                >
+                  {importingDb ? 'Restoring…' : 'Choose backup file to restore'}
+                </button>
+                <p className="text-xs text-amber-700 mt-2">
+                  Warning: the current database is replaced. Make sure you've downloaded a fresh
+                  backup first.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Manual Detection Upload */}
       <div className="bg-white rounded-lg shadow">
