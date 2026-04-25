@@ -22,6 +22,9 @@ export interface TaxonomyStats {
   unique_families: number
   ebird_entries: number
   last_updated: string | null
+  available_languages?: string[]
+  current_language?: string
+  translations_imported?: number
 }
 
 export interface TaxonomyUploadResponse {
@@ -30,7 +33,14 @@ export interface TaxonomyUploadResponse {
   species_created: number
   families_added: number
   total_ebird_species: number
+  languages_imported?: string[]
+  translations_imported?: number
   message: string
+}
+
+export interface TaxonomyLanguageInfo {
+  language: string
+  available_languages: string[]
 }
 
 export interface DetectionUploadResponse {
@@ -217,6 +227,105 @@ export const settingsApi = {
   },
 
   /**
+   * Get the current common-name language and the list of available languages
+   * from the uploaded taxonomy.
+   */
+  getTaxonomyLanguage: async (): Promise<TaxonomyLanguageInfo> => {
+    return apiClient.get<TaxonomyLanguageInfo>('/settings/ebird-taxonomy/language')
+  },
+
+  /**
+   * Set the common-name language. Pass 'en' (or '') to revert to English.
+   */
+  setTaxonomyLanguage: async (code: string): Promise<{ language: string }> => {
+    return apiClient.put<{ language: string }>('/settings/ebird-taxonomy/language', {
+      value: code,
+      data_type: 'str',
+    })
+  },
+
+  /**
+   * DB export/import — SQLite only. `getDbInfo` returns `supported: false` on
+   * Postgres so the UI can hide the buttons.
+   */
+  getDbInfo: async (): Promise<{
+    supported: boolean
+    engine: string
+    path?: string
+    exists?: boolean
+    size_bytes?: number
+  }> => {
+    return apiClient.get('/settings/db/info')
+  },
+
+  /**
+   * Trigger a browser download of the current SQLite database.
+   */
+  exportDatabase: async (): Promise<void> => {
+    const token = localStorage.getItem('auth_token')
+    const response = await fetch('/api/v1/settings/db/export', {
+      method: 'GET',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!response.ok) {
+      let detail = await response.text()
+      try {
+        detail = JSON.parse(detail).detail || detail
+      } catch {
+        // use raw text
+      }
+      throw new Error(detail || `Export failed (HTTP ${response.status})`)
+    }
+    const blob = await response.blob()
+    // Extract filename from Content-Disposition when present.
+    const disposition = response.headers.get('Content-Disposition') || ''
+    const match = disposition.match(/filename="?([^";]+)"?/i)
+    const filename =
+      match?.[1] ||
+      `birdweatherviz-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.sqlite`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
+
+  /**
+   * Upload a SQLite backup and replace the current database. The server
+   * renames the existing DB to `<name>.pre-restore-<timestamp>` before
+   * swapping, so the previous state can be recovered from disk if needed.
+   */
+  importDatabase: async (
+    file: File,
+  ): Promise<{
+    success: boolean
+    message: string
+    restored_bytes: number
+    backup_path?: string | null
+  }> => {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const axios = (await import('axios')).default
+    const token = localStorage.getItem('auth_token')
+    const response = await axios.post(
+      '/api/v1/settings/db/import',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        timeout: 600000,
+      },
+    )
+    return response.data
+  },
+
+  /**
    * Upload detection CSV file
    */
   uploadDetections: async (file: File): Promise<DetectionUploadResponse> => {
@@ -379,6 +488,10 @@ export const settingsApi = {
 
 /**
  * Generate bird information links for a species.
+ *
+ * External sites (allaboutbirds, audubon, rspb, bto, Wikipedia) index their
+ * pages by English common name, so we prefer `englishName` when provided and
+ * only fall back to `commonName` — which may be localized.
  */
 export function generateBirdLinks(
   commonName: string,
@@ -386,12 +499,14 @@ export function generateBirdLinks(
   ebirdCode: string | null | undefined,
   enabledSources: string[],
   inatTaxonId?: number | null,
+  englishName?: string | null,
 ): Array<{ name: string; url: string; source_id: string }> {
   const links: Array<{ name: string; url: string; source_id: string }> = []
 
-  // Prepare name variations
-  const commonNameUnderscore = commonName.replace(/ /g, '_')
-  const commonNameHyphenLower = commonName.toLowerCase().replace(/ /g, '-').replace(/'/g, '')
+  // Prefer the canonical English name for URL lookups when available.
+  const nameForUrls = englishName && englishName.trim() ? englishName : commonName
+  const commonNameUnderscore = nameForUrls.replace(/ /g, '_')
+  const commonNameHyphenLower = nameForUrls.toLowerCase().replace(/ /g, '-').replace(/'/g, '')
   const scientificNameHyphen = scientificName.replace(/ /g, '-')
   const scientificNameHyphenLower = scientificName.toLowerCase().replace(/ /g, '-')
   const scientificNamePlus = encodeURIComponent(scientificName)

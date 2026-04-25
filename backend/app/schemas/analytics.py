@@ -5,9 +5,11 @@ Request/response models for advanced analytics endpoints.
 Version: 1.0.0
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
 from datetime import date
+
+from app.schemas._localize import localize_common_name, localize_species_pair
 
 
 class SpeciesHourBubble(BaseModel):
@@ -20,6 +22,10 @@ class SpeciesHourBubble(BaseModel):
     detection_count: int
     total_detections: int  # Total for this species (for sorting)
 
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
+
 
 class PhenologyCell(BaseModel):
     """Data point for phenology heatmap."""
@@ -29,6 +35,10 @@ class PhenologyCell(BaseModel):
     week_number: int = Field(..., ge=1, le=53)
     year: int
     detection_count: int
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
 
 
 class ConfidenceScatterPoint(BaseModel):
@@ -40,6 +50,10 @@ class ConfidenceScatterPoint(BaseModel):
     total_detections: int
     avg_confidence: float = Field(..., ge=0.0, le=1.0)
     detection_days: int  # Number of days with detections
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
 
 
 class ConfidenceByHour(BaseModel):
@@ -59,6 +73,10 @@ class TemporalDistribution(BaseModel):
     common_name: str
     date: date
     detection_count: int
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
 
 
 class WeatherImpact(BaseModel):
@@ -100,6 +118,10 @@ class CoOccurrenceCell(BaseModel):
     species_2_total_days: int
     jaccard_index: float  # Intersection / Union
 
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_species_pair(self)
+
 
 class SpeciesSeasonality(BaseModel):
     """Data point for species first/last sighting timeline."""
@@ -113,6 +135,10 @@ class SpeciesSeasonality(BaseModel):
     total_detections: int
     active_days: int
 
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
+
 
 class MonthlyChampion(BaseModel):
     """Data point for monthly detection champion."""
@@ -123,3 +149,7 @@ class MonthlyChampion(BaseModel):
     common_name: str
     detection_count: int
     percentage_of_month: float  # % of that month's detections
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)

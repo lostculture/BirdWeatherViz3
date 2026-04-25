@@ -40,6 +40,8 @@ export interface SpeciesResponse {
   id: number
   species_id?: number | null
   common_name: string
+  /** Canonical English common name — populated when the UI language differs. Use for URL/image lookups. */
+  english_name?: string | null
   scientific_name: string
   family?: string
   ebird_code?: string
@@ -63,6 +65,7 @@ export interface SpeciesDiscoveryCurve {
 export interface NewSpeciesThisWeek {
   species_id?: number | null
   common_name: string
+  english_name?: string | null
   scientific_name: string
   ebird_code?: string
   first_detection_date: string

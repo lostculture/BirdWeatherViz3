@@ -127,8 +127,10 @@ const SpeciesDetails: React.FC = () => {
       setTimelineData(timeline)
       setStationDist(distribution)
       setConfidenceData(confidence)
-      // Set bird image URL (pass both scientific and common name)
-      setBirdImageUrl(getBirdImageUrl(species.scientific_name, species.common_name))
+      // Set bird image URL (pass both scientific and English common name)
+      setBirdImageUrl(
+        getBirdImageUrl(species.scientific_name, species.english_name || species.common_name),
+      )
       setLoading(false)
 
       // Fetch iNat taxon ID in background (don't block main load)
@@ -378,6 +380,7 @@ const SpeciesDetails: React.FC = () => {
                     selectedSpecies.ebird_code,
                     birdInfoSources,
                     inatTaxonId,
+                    selectedSpecies.english_name,
                   ).map((link) => (
                     <a
                       key={link.source_id}

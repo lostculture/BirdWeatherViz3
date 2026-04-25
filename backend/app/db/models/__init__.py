@@ -14,6 +14,7 @@ from app.db.models.notification import Notification
 from app.db.models.log import Log
 from app.db.models.setting import Setting
 from app.db.models.image_cache import ImageCache
+from app.db.models.taxonomy_translation import TaxonomyTranslation
 
 # Export all models
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "Log",
     "Setting",
     "ImageCache",
+    "TaxonomyTranslation",
 ]

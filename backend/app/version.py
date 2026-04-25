@@ -1,16 +1,17 @@
 """
 BirdWeatherViz3 Version Information
 
-Version: 2.0.0
+Version: 2.1.0
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __author__ = "BirdWeatherViz3 Contributors"
 __description__ = "Next-generation bird detection visualization platform"
 __license__ = "Proprietary"
 
 # Version history
 VERSION_HISTORY = {
+    "2.1.0": "Localized common names from eBird multilingual taxonomy (XLSX upload + per-language dropdown), database backup/restore (download + upload SQLite snapshot)",
     "2.0.0": "Native desktop app (pywebview + PyInstaller), timezone dropdown, streaming CSV upload with progress bar, shared sync state",
     "1.3.0": "Advanced Analytics page, JWT authentication, password protection, rate limiting, public deployment via Cloudflare Tunnel, iNat taxon ID lookup/caching",
     "1.2.0": "Streaming sync with progress updates, species stats fix, multi-station support improvements",

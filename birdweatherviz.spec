@@ -44,6 +44,7 @@ hidden_imports = [
     'app.db.models.setting',
     'app.db.models.species',
     'app.db.models.station',
+    'app.db.models.taxonomy_translation',
     'app.db.models.weather',
     # Repositories
     'app.repositories.analytics',
@@ -54,7 +55,10 @@ hidden_imports = [
     # Services
     'app.services.birdweather',
     'app.services.inaturalist',
+    'app.services.taxonomy_translations',
     'app.services.weather',
+    # Schemas
+    'app.schemas._localize',
     # Rate limiting
     'app.core.rate_limit',
     # Third-party hidden imports
@@ -69,6 +73,7 @@ hidden_imports = [
     'uvicorn.lifespan',
     'uvicorn.lifespan.on',
     'multipart',
+    'openpyxl',
     'pydantic',
     'pydantic_settings',
     'bcrypt',
@@ -156,6 +161,6 @@ if is_macos:
         bundle_identifier='com.lostculture.birdweatherviz3',
         info_plist={
             'NSHighResolutionCapable': 'True',
-            'CFBundleShortVersionString': '1.5.0',
+            'CFBundleShortVersionString': '2.1.0',
         },
     )
