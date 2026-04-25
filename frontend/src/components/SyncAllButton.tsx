@@ -13,7 +13,7 @@ const SyncAllButton: React.FC<SyncAllButtonProps> = ({ variant, disabled }) => {
     return (
       <button
         type="button"
-        onClick={syncAll}
+        onClick={() => syncAll()}
         disabled={syncing || disabled}
         className="flex items-center space-x-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-green-600 hover:bg-green-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
         title={syncing ? 'Sync in progress...' : 'Sync all stations'}
@@ -45,7 +45,7 @@ const SyncAllButton: React.FC<SyncAllButtonProps> = ({ variant, disabled }) => {
   return (
     <button
       type="button"
-      onClick={syncAll}
+      onClick={() => syncAll()}
       disabled={syncing || disabled}
       className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
     >

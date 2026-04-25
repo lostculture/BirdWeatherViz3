@@ -90,6 +90,7 @@ async def get_station_comparison(
 
 @router.post("/sync-all", response_model=SyncAllResponse)
 async def sync_all_stations(
+    force_full: bool = False,
     db: Session = Depends(get_db_dependency),
     current_user: dict = Depends(get_current_user)
 ):
@@ -98,6 +99,12 @@ async def sync_all_stations(
 
     Performs intelligent sync for all active stations, fetching new detections
     from current date back to last detection in database for each station.
+
+    Args:
+        force_full: When True, paginate all the way through BirdWeather's
+            history for each station, ignoring the catch-up early-stop. Use
+            this once to recover from past sync gaps; normal incremental
+            syncs should leave it False.
 
     Returns:
         SyncAllResponse with total detections added and per-station details
@@ -124,15 +131,14 @@ async def sync_all_stations(
     for station in stations:
         try:
             result = _sync_station_detections(
-                station, detection_repo, species_repo, station_repo, logger
+                station, detection_repo, species_repo, station_repo, logger,
+                force_full=force_full,
             )
             total_added += result['detections_added']
 
             # Determine status message
             if result.get('reached_existing'):
                 status = 'success (caught up to existing data)'
-            elif result.get('reached_gap'):
-                status = 'success (stopped at 7+ day gap)'
             elif result.get('reached_limit'):
                 status = 'partial (hit page limit - run again for more)'
             else:
@@ -183,6 +189,7 @@ async def sync_all_stations(
 
 @router.post("/sync-all-stream")
 async def sync_all_stations_stream(
+    force_full: bool = False,
     db: Session = Depends(get_db_dependency),
     current_user: dict = Depends(get_current_user)
 ):
@@ -190,7 +197,7 @@ async def sync_all_stations_stream(
     Sync all active stations with streaming progress updates.
 
     Returns newline-delimited JSON with progress updates to keep connection alive
-    and show progress to the user.
+    and show progress to the user. See `sync_all_stations` for `force_full`.
     """
     def generate_sync_progress() -> Generator[str, None, None]:
         import logging
@@ -234,15 +241,14 @@ async def sync_all_stations_stream(
 
             try:
                 result = _sync_station_detections(
-                    station, detection_repo, species_repo, station_repo, logger
+                    station, detection_repo, species_repo, station_repo, logger,
+                    force_full=force_full,
                 )
                 total_added += result['detections_added']
 
                 # Determine status message
                 if result.get('reached_existing'):
                     status = 'success (caught up to existing data)'
-                elif result.get('reached_gap'):
-                    status = 'success (stopped at 7+ day gap)'
                 elif result.get('reached_limit'):
                     status = 'partial (hit page limit - run again for more)'
                 else:
@@ -536,95 +542,82 @@ def _sync_station_detections(
     station_repo: StationRepository,
     logger,
     max_pages: int = 500,
-    max_gap_days: int = 7
+    force_full: bool = False,
+    catchup_window: int = 50,
 ) -> dict:
     """
-    Internal function to sync detections for a single station.
-    Uses intelligent sync: fetches from current date back until:
-    - Finding existing data in the database, OR
-    - Encountering a gap of max_gap_days with no detections
+    Sync detections for a single station from BirdWeather.
 
-    Args:
-        station: Station model instance
-        detection_repo: DetectionRepository instance
-        species_repo: SpeciesRepository instance
-        station_repo: StationRepository instance
-        logger: Logger instance
-        max_pages: Maximum pages to fetch (safety limit)
-        max_gap_days: Stop if no detections for this many days
+    Walks BirdWeather's cursor-based pagination newest-first. Each detection
+    is matched to the local DB by `bw_detection_id`; existing rows are
+    skipped, new rows are inserted. Stop conditions, in order:
 
-    Returns dict with sync stats.
+    1. BirdWeather returned an empty/short page (nothing more upstream).
+    2. `max_pages` safety cap reached.
+    3. Normal mode only: we have seen `catchup_window` *consecutive* already-
+       known IDs — the counter is reset every time a new (to us) ID appears,
+       so a backfilled detection sitting inside an already-synced range will
+       still pull subsequent newer detections. The previous date-based stop
+       (`current_date <= last_date`) was bypassed here because it short-
+       circuited backfills entirely — that bug is what caused the
+       BirdNet-Pi/BirdWeather/BWV3 detection-count drift starting Feb 2026.
+    4. `force_full=True` disables stop (3) so the sync paginates until the
+       upstream API runs out — the recovery path for stations whose history
+       is already incomplete from earlier buggy syncs.
     """
-    from datetime import date, timedelta
-
-    # Initialize BirdWeather service
     bw_service = BirdWeatherAPI(station.api_token or "")
 
-    # Get the last detection date from database for this station
     last_detection = detection_repo.get_latest_detection(station.id)
-    last_date = last_detection.detection_date if last_detection else None
-    is_initial_sync = last_date is None
+    is_initial_sync = last_detection is None
 
-    logger.info(f"Syncing station {station.name} (ID: {station.station_id}). Last detection in DB: {last_date}")
+    logger.info(
+        "Syncing station %s (BW ID %s). force_full=%s, last_detection_id=%s",
+        station.name,
+        station.station_id,
+        force_full,
+        getattr(last_detection, "detection_id", None),
+    )
 
     detections_added = 0
     skipped_existing = 0
     skipped_no_species = 0
-    reached_existing = False
-    reached_gap = False
+    consecutive_existing = 0
+    reached_caught_up = False
     station_gps_updated = False
-
-    # Check if station needs GPS coordinates
     needs_gps = not station.latitude or not station.longitude
 
-    # Track date of last detection seen to detect gaps
-    prev_detection_date = None
-
-    # Fetch detections page by page until we reach existing data or hit a gap
     cursor = None
+    pages_fetched = 0
     for page in range(max_pages):
+        pages_fetched = page + 1
         result = bw_service.get_detections(station.station_id, limit=100, cursor=cursor)
         detections = result.get('detections', [])
-
         if not detections:
             break
 
         for detection_data in detections:
             bw_detection_id = detection_data.get('id')
+            if not bw_detection_id:
+                continue
 
-            # Check if detection already exists
-            existing = detection_repo.get_by_birdweather_id(bw_detection_id, station.id)
-            if existing:
+            if detection_repo.get_by_birdweather_id(bw_detection_id, station.id):
                 skipped_existing += 1
-                # If we've found 10 consecutive existing records, assume we've caught up
-                if skipped_existing > 10 and detections_added == 0:
-                    reached_existing = True
+                consecutive_existing += 1
+                if not force_full and consecutive_existing >= catchup_window:
+                    reached_caught_up = True
                     break
                 continue
 
-            # Parse timestamp first to check date
+            # New detection — reset the catchup counter so the loop keeps
+            # walking back through pages that mix new + existing IDs.
+            consecutive_existing = 0
+
             timestamp_str = detection_data.get('timestamp')
             if isinstance(timestamp_str, str):
                 timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
             else:
                 timestamp = timestamp_str
 
-            current_date = timestamp.date()
-
-            # Check for gap in detections (7+ days with no data)
-            if prev_detection_date and (prev_detection_date - current_date).days >= max_gap_days:
-                logger.info(f"Detected gap of {(prev_detection_date - current_date).days} days - stopping sync")
-                reached_gap = True
-                break
-
-            prev_detection_date = current_date
-
-            # If we have a last_date and this detection is older or equal, we've caught up
-            if last_date and current_date <= last_date:
-                reached_existing = True
-                break
-
-            # Get or create species
             species_data = detection_data.get('species', {})
             bw_species_id = species_data.get('id')
             scientific_name = species_data.get('scientificName')
@@ -636,26 +629,25 @@ def _sync_station_detections(
 
             species = species_repo.get_by_birdweather_id(bw_species_id)
             if not species:
-                # Also check by scientific name in case species exists from another station
                 species = species_repo.get_by_scientific_name(scientific_name)
             if not species:
                 species = species_repo.create(
                     species_id=bw_species_id,
                     scientific_name=scientific_name,
-                    common_name=common_name
+                    common_name=common_name,
                 )
 
-            # Capture GPS from detection data if station needs it
             detection_lat = detection_data.get('lat')
             detection_lon = detection_data.get('lon')
-
             if needs_gps and not station_gps_updated and detection_lat and detection_lon:
-                # Update station with GPS from first detection
                 station_repo.update(station.id, latitude=detection_lat, longitude=detection_lon)
                 station_gps_updated = True
-                logger.info(f"Updated station GPS from detection: {detection_lat}, {detection_lon}")
+                logger.info(
+                    "Updated station GPS from detection: %s, %s",
+                    detection_lat,
+                    detection_lon,
+                )
 
-            # Create detection
             detection_repo.create(
                 station_id=station.id,
                 species_id=species.id,
@@ -665,21 +657,18 @@ def _sync_station_detections(
                 latitude=detection_lat or station.latitude,
                 longitude=detection_lon or station.longitude,
                 detection_date=timestamp.date(),
-                detection_hour=timestamp.hour
+                detection_hour=timestamp.hour,
             )
             detections_added += 1
 
-        if reached_existing or reached_gap:
+        if reached_caught_up:
             break
-
-        # Set cursor for next page
         if len(detections) < 100:
             break
         cursor = detections[-1].get('id')
         if cursor is None:
             break
 
-    # Update station last_update timestamp
     station_repo.update(station.id, last_update=datetime.utcnow())
 
     return {
@@ -689,15 +678,18 @@ def _sync_station_detections(
         'skipped_existing': skipped_existing,
         'skipped_no_species': skipped_no_species,
         'is_initial_sync': is_initial_sync,
-        'reached_existing': reached_existing,
-        'reached_gap': reached_gap,
-        'reached_limit': not reached_existing and not reached_gap and page >= max_pages - 1
+        'reached_existing': reached_caught_up,
+        'reached_gap': False,  # back-compat — gap-based stop was removed
+        'reached_limit': not reached_caught_up and pages_fetched >= max_pages,
+        'pages_fetched': pages_fetched,
+        'force_full': force_full,
     }
 
 
 @router.post("/{station_id}/sync", response_model=SyncResponse)
 async def sync_station_data(
     station_id: int,
+    force_full: bool = False,
     db: Session = Depends(get_db_dependency),
     current_user: dict = Depends(get_current_user)
 ):
@@ -709,6 +701,9 @@ async def sync_station_data(
 
     Args:
         station_id: Database ID of the station to sync
+        force_full: When True, paginate the full BirdWeather history for the
+            station. Use to recover detections missed by earlier (buggy)
+            incremental syncs.
 
     Returns:
         SyncResponse with count of detections added
@@ -726,7 +721,8 @@ async def sync_station_data(
 
     try:
         result = _sync_station_detections(
-            station, detection_repo, species_repo, station_repo, logger
+            station, detection_repo, species_repo, station_repo, logger,
+            force_full=force_full,
         )
 
         # Update species cached statistics if detections were added

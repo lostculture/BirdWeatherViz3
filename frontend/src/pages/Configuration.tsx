@@ -32,7 +32,23 @@ interface StationFormData {
 
 const Configuration: React.FC = () => {
   // Shared sync state
-  const { syncing: syncingAll, progress: syncProgress, details: syncDetails } = useSync()
+  const {
+    syncing: syncingAll,
+    progress: syncProgress,
+    details: syncDetails,
+    syncAll,
+  } = useSync()
+
+  const handleForceFullResync = () => {
+    const ok = window.confirm(
+      'Re-sync the full BirdWeather history for every station?\n\n' +
+        'This pulls every detection upstream — useful to recover detections ' +
+        'missed by earlier (buggy) syncs. May take several minutes for stations ' +
+        'with long histories.',
+    )
+    if (!ok) return
+    syncAll({ forceFull: true })
+  }
 
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
@@ -563,6 +579,15 @@ const Configuration: React.FC = () => {
         </div>
         <div className="flex space-x-3">
           <SyncAllButton variant="page" disabled={stations.length === 0} />
+          <button
+            type="button"
+            onClick={handleForceFullResync}
+            disabled={syncingAll || stations.length === 0}
+            title="Walk every station's full BirdWeather history. Use this once to recover detections missed by earlier syncs."
+            className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
+          >
+            Re-sync full history
+          </button>
           <button
             type="button"
             onClick={handleAddStation}

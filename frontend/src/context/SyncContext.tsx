@@ -14,7 +14,7 @@ interface SyncContextType {
   lastResult: { total: number; stations: number } | null
   error: string | null
   lastSyncedAt: Date | null
-  syncAll: () => Promise<void>
+  syncAll: (options?: { forceFull?: boolean }) => Promise<void>
 }
 
 const SyncContext = createContext<SyncContextType | undefined>(undefined)
@@ -28,16 +28,16 @@ export const SyncProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
   const lockRef = useRef(false)
 
-  const syncAll = useCallback(async () => {
+  const syncAll = useCallback(async (options?: { forceFull?: boolean }) => {
     if (lockRef.current) return
     lockRef.current = true
     setSyncing(true)
-    setProgress('Starting sync...')
+    setProgress(options?.forceFull ? 'Starting full re-sync...' : 'Starting sync...')
     setDetails([])
     setError(null)
 
     try {
-      for await (const event of stationsApi.syncAllStream()) {
+      for await (const event of stationsApi.syncAllStream(undefined, options?.forceFull)) {
         switch (event.type) {
           case 'start':
             setProgress(event.message || 'Starting...')
