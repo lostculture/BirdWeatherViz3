@@ -1,6 +1,6 @@
 # BirdWeatherViz3 🐦
 
-**Version:** 2.0.0
+**Version:** 2.2.0
 
 Bird detection visualization and analytics platform for [BirdWeather](https://www.birdweather.com) stations. 25+ interactive charts, weather correlation, multi-station support, and automatic data sync.
 
@@ -23,10 +23,10 @@ Bird detection visualization and analytics platform for [BirdWeather](https://ww
 
 | Platform | Download |
 |----------|----------|
-| Windows (x64) | [birdweatherviz3-windows-x64.zip](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.0.0/birdweatherviz3-windows-x64.zip) |
-| macOS (Apple Silicon — M1/M2/M3/M4) | [birdweatherviz3-macos-arm64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.0.0/birdweatherviz3-macos-arm64.tar.gz) |
-| macOS (Intel) | [birdweatherviz3-macos-x64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.0.0/birdweatherviz3-macos-x64.tar.gz) |
-| Linux (x64) | [birdweatherviz3-linux-x64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.0.0/birdweatherviz3-linux-x64.tar.gz) |
+| Windows (x64) | [birdweatherviz3-windows-x64.zip](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.0/birdweatherviz3-windows-x64.zip) |
+| macOS (Apple Silicon — M1/M2/M3/M4) | [birdweatherviz3-macos-arm64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.0/birdweatherviz3-macos-arm64.tar.gz) |
+| macOS (Intel) | [birdweatherviz3-macos-x64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.0/birdweatherviz3-macos-x64.tar.gz) |
+| Linux (x64) | [birdweatherviz3-linux-x64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.0/birdweatherviz3-linux-x64.tar.gz) |
 
 1. Download the archive for your OS above
 2. Extract it
@@ -37,6 +37,26 @@ A native window opens with the full dashboard. Everything runs locally on your m
 **macOS users:** The app is unsigned. Right-click → Open on first launch, or run `xattr -cr BirdWeatherViz3` in Terminal. See the [Desktop App Guide](docs/README-desktop.md) for details.
 
 For first-time setup (adding stations, syncing data), platform notes, and building from source, see the [**Desktop App Guide**](docs/README-desktop.md).
+
+### Updating the desktop app
+
+**Your data is preserved automatically.** The app bundle and your database are stored in different places:
+
+| OS | App location | Database location (preserved across updates) |
+|---|---|---|
+| Windows | wherever you extracted the zip | `%APPDATA%\BirdWeatherViz3\db\birdweather.db` |
+| macOS | wherever you extracted, or `Applications/` | `~/Library/Application Support/BirdWeatherViz3/db/birdweather.db` |
+| Linux | wherever you extracted | `~/.local/share/BirdWeatherViz3/db/birdweather.db` |
+
+To update:
+
+1. **(Recommended) Take a backup first.** Open the running app → **Configuration → Database Backup & Restore → Download backup**, save the `.sqlite` file somewhere safe.
+2. Quit the app.
+3. Delete the old app folder/bundle and replace it with the new release.
+4. Launch the new version. It finds the existing database in the OS user data directory and keeps going — no migration step.
+5. If anything looks wrong, use **Configuration → Restore from backup** to roll back to the snapshot from step 1.
+
+Schema changes since v2.0.0 (the `taxonomy_translation` and `detection_day_verification` tables) are additive — `create_all()` adds them on first launch and existing rows are untouched.
 
 ---
 
@@ -76,9 +96,11 @@ Copy the block below for your operating system, paste it into the Terminal, and 
 
 ```bash
 curl -O https://raw.githubusercontent.com/lostculture/BirdWeatherViz3/master/docker-compose.public-test.yml
+mkdir -p bwv3-data
 read -s -p "Pick an admin password for BirdWeather: " CONFIG_PASSWORD && echo
 export CONFIG_PASSWORD
 export JWT_SECRET="$(openssl rand -hex 32)"
+export DATA_DIR="$PWD/bwv3-data"
 docker compose -f docker-compose.public-test.yml up -d
 ```
 </details>
@@ -88,12 +110,16 @@ docker compose -f docker-compose.public-test.yml up -d
 
 ```powershell
 Invoke-WebRequest -Uri https://raw.githubusercontent.com/lostculture/BirdWeatherViz3/master/docker-compose.public-test.yml -OutFile docker-compose.public-test.yml
+New-Item -ItemType Directory -Force -Path bwv3-data | Out-Null
 $pwd_secure = Read-Host -AsSecureString "Pick an admin password for BirdWeather"
 $env:CONFIG_PASSWORD = [System.Net.NetworkCredential]::new("", $pwd_secure).Password
 $env:JWT_SECRET = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 64 | ForEach-Object {[char]$_})
+$env:DATA_DIR = (Resolve-Path bwv3-data).Path
 docker compose -f docker-compose.public-test.yml up -d
 ```
 </details>
+
+> **Where does the data live?** The `bwv3-data` folder you just created. It's bind-mounted into the container, so the SQLite database, image cache, logs, and uploads all sit in plain files inside that directory. Back it up by copying it. Move it to a different machine by copying it. A stray `docker compose down -v` or `docker volume prune` can't touch it because it's not in Docker's volume area — it's a regular folder you own.
 
 You'll see some download progress and then messages saying containers are "Started". That means it worked.
 
@@ -109,14 +135,17 @@ You'll see the BirdWeather dashboard. Log in with the password you just picked. 
 
 ### Stopping, updating, and uninstalling
 
-Back in the same Terminal window, in the same folder:
+Back in the same Terminal window, in the same folder. Re-set the same env
+vars (`CONFIG_PASSWORD`, `JWT_SECRET`, `DATA_DIR`) before each command if
+you've opened a fresh shell, otherwise compose will fail fast.
 
 - **Stop it** (can restart later): `docker compose -f docker-compose.public-test.yml down`
 - **Start it again** later: `docker compose -f docker-compose.public-test.yml up -d`
-- **Update to the latest version:** `docker compose -f docker-compose.public-test.yml pull` then `up -d` again
-- **Uninstall everything including your data:** `docker compose -f docker-compose.public-test.yml down -v`
+- **Update to the latest version:** `docker compose -f docker-compose.public-test.yml pull` then `up -d` again — your data in `bwv3-data/` is untouched
+- **Move to another machine:** copy the entire `bwv3-data/` folder over and run `up -d` on the new host
+- **Uninstall:** `docker compose -f docker-compose.public-test.yml down`, then delete the folder you created and the `bwv3-data/` directory
 
-Your data (stations, detection history, settings) is stored in a Docker volume and survives stops, starts, and upgrades. Only the `down -v` command deletes it.
+Your data (stations, detection history, settings, taxonomy translations) lives in `bwv3-data/` next to where you ran `up -d`. It's a real folder, not a Docker volume — back it up with `cp -r bwv3-data /somewhere/safe`, or use Configuration → Database Backup & Restore for a single-file SQLite snapshot.
 
 ### Troubleshooting
 

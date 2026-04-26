@@ -23,7 +23,8 @@ trap cleanup SIGINT SIGTERM
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-# Default ports are chosen to avoid common clashes (React 3000, FastAPI 8000).
+# Default ports avoid common clashes (React 3000, FastAPI 8000) and the
+# Docker stack's host ports (8001/3001 for local, 8002/3004 for public-test).
 # Override with BACKEND_PORT / FRONTEND_PORT if needed.
 BACKEND_PORT="${BACKEND_PORT:-8765}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"

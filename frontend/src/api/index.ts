@@ -19,3 +19,5 @@ export {
   generateBirdLinks,
 } from './settings'
 export { weatherApi } from './weather'
+export { systemApi } from './system'
+export type { SystemInfo, UpdateInfo } from './system'

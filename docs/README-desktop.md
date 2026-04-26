@@ -99,6 +99,28 @@ If you have an existing database from a Docker or web deployment at
 `./data/db/birdweather.db`, the desktop app will automatically copy it to the
 user data directory on first launch.
 
+## Updating to a newer version
+
+Your data lives in the OS user data directory above, **separate** from the app
+bundle, so updates never touch it:
+
+1. **(Recommended) Take a backup first.** In the running app, go to
+   **Configuration → Database Backup & Restore → Download backup** and save
+   the `.sqlite` file somewhere safe.
+2. Quit the app.
+3. Delete the old app folder/bundle and replace it with the freshly-downloaded
+   release. The app archive is self-contained — drop in the new one and
+   discard the old.
+4. Launch the new version. It re-opens the existing database from the user
+   data directory and keeps going.
+5. If anything looks wrong, use **Configuration → Restore from backup** to
+   roll back to the snapshot from step 1. The old database is also kept on
+   disk as `birdweather.db.pre-restore-<timestamp>` for emergency rollback.
+
+Schema changes since v2.0.0 are additive (new tables only — `taxonomy_translation`
+in v2.1.0, `detection_day_verification` in v2.1.2). They are created on first
+launch via SQLAlchemy's `create_all()`; existing rows are untouched.
+
 ## Platform notes
 
 ### Windows

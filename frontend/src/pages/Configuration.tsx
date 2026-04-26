@@ -108,6 +108,10 @@ const Configuration: React.FC = () => {
   const [autoUpdateOnStart, setAutoUpdateOnStart] = useState(true)
   const [savingAutoUpdate, setSavingAutoUpdate] = useState(false)
 
+  // Update-check state (notification banner for new releases)
+  const [updateCheckEnabled, setUpdateCheckEnabled] = useState(true)
+  const [savingUpdateCheck, setSavingUpdateCheck] = useState(false)
+
   // Display units state
   const [temperatureUnit, setTemperatureUnit] = useState<'imperial' | 'metric'>('imperial')
   const [windSpeedUnit, setWindSpeedUnit] = useState<'imperial' | 'metric'>('imperial')
@@ -190,8 +194,38 @@ const Configuration: React.FC = () => {
       setWindSpeedUnit(windUnit)
       setBirdInfoSources(birdSources)
       setAutoUpdateOnStart(autoUpdate)
+
+      // Update-check toggle is a generic key in the setting table.
+      try {
+        const setting = await settingsApi.get('update_check_enabled')
+        setUpdateCheckEnabled(
+          (setting.value || '').toLowerCase() !== 'false',
+        )
+      } catch {
+        // Default True when the setting doesn't exist yet.
+        setUpdateCheckEnabled(true)
+      }
     } catch (err) {
       console.error('Failed to load display settings:', err)
+    }
+  }
+
+  const handleToggleUpdateCheck = async () => {
+    const newValue = !updateCheckEnabled
+    setUpdateCheckEnabled(newValue)
+    setSavingUpdateCheck(true)
+    try {
+      await settingsApi.update(
+        'update_check_enabled',
+        String(newValue),
+        'bool',
+        'Show a banner when a newer release is available on GitHub',
+      )
+    } catch (err: any) {
+      setUpdateCheckEnabled(!newValue)
+      alert(`Failed to save: ${err.message || 'Unknown error'}`)
+    } finally {
+      setSavingUpdateCheck(false)
     }
   }
 
@@ -1241,6 +1275,22 @@ const Configuration: React.FC = () => {
           <p className="text-sm text-gray-500 mt-1 ml-6">
             When enabled, all active stations will be synced automatically each time you open the
             app.
+          </p>
+
+          <label className="flex items-center cursor-pointer mt-4">
+            <input
+              type="checkbox"
+              checked={updateCheckEnabled}
+              onChange={handleToggleUpdateCheck}
+              disabled={savingUpdateCheck}
+              className="w-4 h-4 text-blue-600 rounded"
+            />
+            <span className="ml-2 font-medium">Check for app updates</span>
+          </label>
+          <p className="text-sm text-gray-500 mt-1 ml-6">
+            When enabled, the app checks GitHub on startup and shows a banner if a newer
+            release is available. Sends one anonymous request to{' '}
+            <code>api.github.com</code> every 6 hours; no other tracking.
           </p>
         </div>
       </div>

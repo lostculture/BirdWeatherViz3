@@ -8,7 +8,7 @@ Version: 1.0.0
 from fastapi import APIRouter
 
 # Import endpoint routers as they are created
-from app.api.v1 import auth, detections, species, stations, settings, weather, images, analytics
+from app.api.v1 import auth, detections, species, stations, settings, weather, images, analytics, system
 
 # Create main v1 router
 router = APIRouter()
@@ -60,6 +60,12 @@ router.include_router(
     analytics.router,
     prefix="/analytics",
     tags=["analytics"]
+)
+
+router.include_router(
+    system.router,
+    prefix="/system",
+    tags=["system"]
 )
 
 # Health check at v1 level (in addition to root level)
