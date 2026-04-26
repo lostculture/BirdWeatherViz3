@@ -22,8 +22,11 @@ from app.schemas.station import (
     StationStats
 )
 from app.services.birdweather import BirdWeatherAPI
+from app.db.models.detection import Detection as DetectionModel
+from app.db.models.detection_day_verification import DetectionDayVerification
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, date as date_type
+from sqlalchemy import func as sa_func
 
 router = APIRouter()
 
@@ -535,15 +538,99 @@ async def get_species_by_station(
     return result
 
 
+def _update_day_verification(
+    db: Session,
+    station_id: int,
+    dates_added: dict,
+    dates_seen: set,
+    logger,
+) -> int:
+    """
+    Upsert `detection_day_verification` rows for every date the sync touched.
+
+    A "touched" date is one that appeared in the BirdWeather pagination this
+    run (whether or not we added anything for it). For each:
+
+    - `read_count` is incremented by one
+    - `last_added` is set to the number of new rows inserted this run for that date
+    - `detections_count` is refreshed from the actual `detections` table
+    - `verified` is set to True iff `read_count >= 2 AND last_added == 0`
+    - if `last_added > 0`, `verified` is forced back to False — a backfill
+      invalidates a prior True
+
+    Returns the number of dates updated.
+    """
+    from app.db.models.detection_day_verification import DetectionDayVerification
+
+    if not dates_seen:
+        return 0
+
+    # Count detections per date in one query for the dates we touched.
+    counts_rows = (
+        db.query(DetectionModel.detection_date, sa_func.count(DetectionModel.id))
+        .filter(DetectionModel.station_id == station_id)
+        .filter(DetectionModel.detection_date.in_(list(dates_seen)))
+        .group_by(DetectionModel.detection_date)
+        .all()
+    )
+    actual_counts = {row[0]: row[1] for row in counts_rows}
+
+    existing = (
+        db.query(DetectionDayVerification)
+        .filter(DetectionDayVerification.station_id == station_id)
+        .filter(DetectionDayVerification.detection_date.in_(list(dates_seen)))
+        .all()
+    )
+    by_date = {r.detection_date: r for r in existing}
+
+    updated = 0
+    now = datetime.utcnow()
+    for d in dates_seen:
+        added = dates_added.get(d, 0)
+        count = actual_counts.get(d, 0)
+        row = by_date.get(d)
+        if row is None:
+            row = DetectionDayVerification(
+                station_id=station_id,
+                detection_date=d,
+                detections_count=count,
+                read_count=1,
+                last_added=added,
+                verified=False,
+                first_synced_at=now,
+                last_synced_at=now,
+            )
+            db.add(row)
+        else:
+            row.read_count += 1
+            row.last_added = added
+            row.detections_count = count
+            row.last_synced_at = now
+            if added > 0:
+                row.verified = False
+            elif row.read_count >= 2:
+                row.verified = True
+        updated += 1
+
+    db.commit()
+    logger.info(
+        "Updated day-verification rows: station=%s touched_dates=%d",
+        station_id,
+        updated,
+    )
+    return updated
+
+
 def _sync_station_detections(
     station,
     detection_repo: DetectionRepository,
     species_repo: SpeciesRepository,
     station_repo: StationRepository,
     logger,
-    max_pages: int = 500,
+    max_pages: int = 5000,
     force_full: bool = False,
     catchup_window: int = 50,
+    verified_window_days: int = 7,
 ) -> dict:
     """
     Sync detections for a single station from BirdWeather.
@@ -553,29 +640,47 @@ def _sync_station_detections(
     skipped, new rows are inserted. Stop conditions, in order:
 
     1. BirdWeather returned an empty/short page (nothing more upstream).
-    2. `max_pages` safety cap reached.
-    3. Normal mode only: we have seen `catchup_window` *consecutive* already-
-       known IDs — the counter is reset every time a new (to us) ID appears,
-       so a backfilled detection sitting inside an already-synced range will
-       still pull subsequent newer detections. The previous date-based stop
-       (`current_date <= last_date`) was bypassed here because it short-
-       circuited backfills entirely — that bug is what caused the
-       BirdNet-Pi/BirdWeather/BWV3 detection-count drift starting Feb 2026.
-    4. `force_full=True` disables stop (3) so the sync paginates until the
-       upstream API runs out — the recovery path for stations whose history
-       is already incomplete from earlier buggy syncs.
+    2. Normal mode only: `verified_window_days` consecutive previously-
+       verified dates yielded zero new rows in this run — those days have
+       already been confirmed twice and there's nothing new in the recent
+       walk, so the older history is also stable.
+    3. Normal mode fallback: `catchup_window` consecutive already-known IDs
+       (the per-detection equivalent of stop 2; useful for stations that
+       haven't built up verification history yet).
+    4. `max_pages` safety cap (normal mode only). When `force_full=True` we
+       walk until BirdWeather returns an empty page, ignoring `max_pages` —
+       built-in continuation, no need for the manual chained passes that
+       were required pre-v2.1.2.
+
+    The `dates_added` accumulator drives the verification table writes that
+    happen at the end of the sync via `_update_day_verification`.
     """
     bw_service = BirdWeatherAPI(station.api_token or "")
 
     last_detection = detection_repo.get_latest_detection(station.id)
     is_initial_sync = last_detection is None
 
+    db = species_repo.db  # piggy-back the SessionLocal session for verification rows
+
+    # Pre-load the set of already-verified dates so the new stop condition can
+    # consult it without a per-page DB hit.
+    from app.db.models.detection_day_verification import DetectionDayVerification
+    verified_dates = {
+        row.detection_date
+        for row in db.query(DetectionDayVerification.detection_date)
+        .filter(DetectionDayVerification.station_id == station.id)
+        .filter(DetectionDayVerification.verified.is_(True))
+        .all()
+    }
+
     logger.info(
-        "Syncing station %s (BW ID %s). force_full=%s, last_detection_id=%s",
+        "Syncing station %s (BW ID %s). force_full=%s, last_detection_id=%s, "
+        "verified_dates=%d",
         station.name,
         station.station_id,
         force_full,
         getattr(last_detection, "detection_id", None),
+        len(verified_dates),
     )
 
     detections_added = 0
@@ -586,10 +691,22 @@ def _sync_station_detections(
     station_gps_updated = False
     needs_gps = not station.latitude or not station.longitude
 
+    # Per-date tracking for the verification table.
+    dates_added: dict = {}
+    dates_seen: set = set()
+    consecutive_verified_dates = 0
+    last_seen_date = None
+
     cursor = None
     pages_fetched = 0
-    for page in range(max_pages):
-        pages_fetched = page + 1
+    # Hard cap to prevent runaway loops if BW ever streams the same cursor
+    # back forever. force_full disables the soft `max_pages` cap.
+    HARD_CAP = max(max_pages * 20, 100_000)
+    while pages_fetched < HARD_CAP:
+        if not force_full and pages_fetched >= max_pages:
+            break
+
+        pages_fetched += 1
         result = bw_service.get_detections(station.station_id, limit=100, cursor=cursor)
         detections = result.get('detections', [])
         if not detections:
@@ -600,6 +717,26 @@ def _sync_station_detections(
             if not bw_detection_id:
                 continue
 
+            timestamp_str = detection_data.get('timestamp')
+            if isinstance(timestamp_str, str):
+                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            else:
+                timestamp = timestamp_str
+            current_date = timestamp.date()
+            dates_seen.add(current_date)
+
+            # Track date transitions for the verified-window stop.
+            if last_seen_date is not None and current_date != last_seen_date:
+                # Just rolled over to an older date. Decide whether to count it.
+                if last_seen_date in verified_dates and dates_added.get(last_seen_date, 0) == 0:
+                    consecutive_verified_dates += 1
+                    if not force_full and consecutive_verified_dates >= verified_window_days:
+                        reached_caught_up = True
+                        break
+                else:
+                    consecutive_verified_dates = 0
+            last_seen_date = current_date
+
             if detection_repo.get_by_birdweather_id(bw_detection_id, station.id):
                 skipped_existing += 1
                 consecutive_existing += 1
@@ -608,15 +745,10 @@ def _sync_station_detections(
                     break
                 continue
 
-            # New detection — reset the catchup counter so the loop keeps
+            # New detection — reset both catchup counters so the loop keeps
             # walking back through pages that mix new + existing IDs.
             consecutive_existing = 0
-
-            timestamp_str = detection_data.get('timestamp')
-            if isinstance(timestamp_str, str):
-                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-            else:
-                timestamp = timestamp_str
+            consecutive_verified_dates = 0
 
             species_data = detection_data.get('species', {})
             bw_species_id = species_data.get('id')
@@ -656,10 +788,11 @@ def _sync_station_detections(
                 confidence=detection_data.get('confidence', 0.0),
                 latitude=detection_lat or station.latitude,
                 longitude=detection_lon or station.longitude,
-                detection_date=timestamp.date(),
+                detection_date=current_date,
                 detection_hour=timestamp.hour,
             )
             detections_added += 1
+            dates_added[current_date] = dates_added.get(current_date, 0) + 1
 
         if reached_caught_up:
             break
@@ -671,6 +804,16 @@ def _sync_station_detections(
 
     station_repo.update(station.id, last_update=datetime.utcnow())
 
+    # Side effect: record per-date verification status for every date this run touched.
+    try:
+        _update_day_verification(db, station.id, dates_added, dates_seen, logger)
+    except Exception as e:
+        logger.warning("Day-verification update failed (non-critical): %s", e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
     return {
         'station_id': station.id,
         'station_name': station.name,
@@ -679,10 +822,11 @@ def _sync_station_detections(
         'skipped_no_species': skipped_no_species,
         'is_initial_sync': is_initial_sync,
         'reached_existing': reached_caught_up,
-        'reached_gap': False,  # back-compat — gap-based stop was removed
-        'reached_limit': not reached_caught_up and pages_fetched >= max_pages,
+        'reached_gap': False,
+        'reached_limit': not reached_caught_up and not force_full and pages_fetched >= max_pages,
         'pages_fetched': pages_fetched,
         'force_full': force_full,
+        'dates_touched': len(dates_seen),
     }
 
 
