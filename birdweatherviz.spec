@@ -45,6 +45,7 @@ hidden_imports = [
     'app.db.models.species',
     'app.db.models.station',
     'app.db.models.taxonomy_translation',
+    'app.db.models.detection_day_verification',
     'app.db.models.weather',
     # Repositories
     'app.repositories.analytics',
@@ -161,6 +162,6 @@ if is_macos:
         bundle_identifier='com.lostculture.birdweatherviz3',
         info_plist={
             'NSHighResolutionCapable': 'True',
-            'CFBundleShortVersionString': '2.1.1',
+            'CFBundleShortVersionString': '2.1.2',
         },
     )

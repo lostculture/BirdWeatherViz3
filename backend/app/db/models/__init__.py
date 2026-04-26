@@ -15,6 +15,7 @@ from app.db.models.log import Log
 from app.db.models.setting import Setting
 from app.db.models.image_cache import ImageCache
 from app.db.models.taxonomy_translation import TaxonomyTranslation
+from app.db.models.detection_day_verification import DetectionDayVerification
 
 # Export all models
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "Setting",
     "ImageCache",
     "TaxonomyTranslation",
+    "DetectionDayVerification",
 ]
