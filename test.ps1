@@ -10,7 +10,8 @@ function ER  ($m) { Write-Host "x $m" -ForegroundColor Red }
 function IN_ ($m) { Write-Host "> $m" -ForegroundColor Cyan }
 function WA  ($m) { Write-Host "! $m" -ForegroundColor Yellow }
 
-# Default ports avoid common clashes (React 3000, FastAPI 8000).
+# Default ports avoid common clashes (React 3000, FastAPI 8000) and the
+# Docker stack's host ports (8001/3001 for local, 8002/3004 for public-test).
 # Override with BACKEND_PORT / FRONTEND_PORT env vars if needed.
 if (-not $env:BACKEND_PORT)  { $env:BACKEND_PORT  = "8765" }
 if (-not $env:FRONTEND_PORT) { $env:FRONTEND_PORT = "5173" }

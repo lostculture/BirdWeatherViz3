@@ -70,4 +70,4 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: ${DATA_DIR:-/home/richardj/birdweatherviz3-public-data/data}
+      device: ${DATA_DIR:?DATA_DIR must be set in .env.public to an absolute host path}

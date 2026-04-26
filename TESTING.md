@@ -47,9 +47,9 @@ The test scripts automatically:
 2. ✓ Create `.env` files from `.env.example` if they don't exist
 3. ✓ Install Python dependencies (if missing)
 4. ✓ Install npm dependencies (if missing)
-5. ✓ Start the backend API server on http://localhost:8000
-6. ✓ Start the frontend dev server on http://localhost:3000
-7. ✓ Open your browser to http://localhost:3000
+5. ✓ Start the backend API server on http://localhost:8765
+6. ✓ Start the frontend dev server on http://localhost:5173
+7. ✓ Open your browser to http://localhost:5173
 8. ✓ Keep both servers running until you press Ctrl+C
 
 ## Manual Testing (Alternative)
@@ -107,7 +107,7 @@ mkdir -p backend/data/db backend/data/logs backend/data/uploads
 
 ```bash
 cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8765
 ```
 
 ### 6. Start Frontend (Terminal 2)
@@ -119,11 +119,17 @@ npm run dev
 
 ### 7. Open Browser
 
-Navigate to: http://localhost:3000
+Navigate to: http://localhost:5173
+
+The default ports (8765 / 5173) are deliberately well outside both common
+dev defaults (8000 / 3000) and the Docker stack's host ports (8001/3001 for
+local, 8002/3004 for public-test) so you can run native dev and Docker side
+by side without conflicts. Set `BACKEND_PORT` / `FRONTEND_PORT` env vars
+before launching if you need different values.
 
 ## What to Expect
 
-### Backend (http://localhost:8000)
+### Backend (http://localhost:8765)
 
 - Root endpoint returns API info:
   ```json
@@ -148,7 +154,7 @@ Navigate to: http://localhost:3000
 - Interactive API docs at `/api/v1/docs` (Swagger UI)
 - Database auto-created at `backend/data/db/birdweather.db`
 
-### Frontend (http://localhost:3000)
+### Frontend (http://localhost:5173)
 
 **With No Data (Initial State):**
 
@@ -183,7 +189,7 @@ To see the app with actual data, you need to add a station:
 
 ### 2. Add Station via API
 
-Open the API docs at http://localhost:8000/api/v1/docs
+Open the API docs at http://localhost:8765/api/v1/docs
 
 1. Find `POST /api/v1/stations/`
 2. Click "Try it out"
@@ -210,14 +216,14 @@ For now, you can test the endpoints manually via the API docs to fetch detection
 
 If you get port conflicts:
 
-**Backend (Port 8000):**
+**Backend (Port 8765):**
 ```bash
-# Find process using port 8000
+# Find process using port 8765
 # Windows
-netstat -ano | findstr :8000
+netstat -ano | findstr :8765
 
 # Mac/Linux
-lsof -i :8000
+lsof -i :8765
 
 # Kill the process (use PID from above)
 # Windows
@@ -227,10 +233,14 @@ taskkill /PID <PID> /F
 kill -9 <PID>
 ```
 
-**Frontend (Port 3000):**
+**Frontend (Port 5173):**
 ```bash
-# Similar process for port 3000
+# Similar process for port 5173
 ```
+
+If either port is in use, set `BACKEND_PORT` and `FRONTEND_PORT` to free
+values before launching the script — see the example in the script's
+port-conflict error message.
 
 ### Image Cache / Permission Errors
 
@@ -271,8 +281,8 @@ rm backend/data/db/birdweather.db
 ### CORS Errors
 
 Make sure:
-- Backend is running on port 8000
-- Frontend is running on port 3000
+- Backend is running on port 8765
+- Frontend is running on port 5173
 - Check `backend/app/config.py` CORS settings
 
 ### Vite 404 Errors
@@ -320,9 +330,9 @@ If you encounter issues:
 1. Check the troubleshooting section above
 2. Review terminal/console output for error messages
 3. Verify all dependencies are correctly installed
-4. Check that ports 8000 and 3000 are available
+4. Check that ports 8765 and 5173 are available
 
 ---
 
-**Version:** 1.4.2
-**Last Updated:** 2026-03
+**Version:** 2.2.0
+**Last Updated:** 2026-04

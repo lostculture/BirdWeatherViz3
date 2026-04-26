@@ -91,19 +91,21 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Could not seed auto_update_on_start: {e}")
 
-    # Load taxonomy translation cache + preferred language
+    # Load taxonomy translation cache + preferred language and seed schema_version
     try:
         from app.db.session import get_db
         from app.services import taxonomy_translations
+        from app.api.v1.system import ensure_schema_version_seeded
 
         db = next(get_db())
         try:
             taxonomy_translations.load_cache(db)
             taxonomy_translations.load_app_language(db)
+            ensure_schema_version_seeded(db)
         finally:
             db.close()
     except Exception as e:
-        logger.warning(f"Could not load taxonomy translations: {e}")
+        logger.warning(f"Could not load taxonomy translations / seed schema version: {e}")
 
     # Start background scheduler for automatic station updates
     try:
