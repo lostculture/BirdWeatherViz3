@@ -1,6 +1,6 @@
 # BirdWeatherViz3 🐦
 
-**Version:** 2.2.1
+**Version:** 2.2.2
 
 Bird detection visualization and analytics platform for [BirdWeather](https://www.birdweather.com) stations. 25+ interactive charts, weather correlation, multi-station support, and automatic data sync.
 
@@ -23,10 +23,10 @@ Bird detection visualization and analytics platform for [BirdWeather](https://ww
 
 | Platform | Download |
 |----------|----------|
-| Windows (x64) | [birdweatherviz3-windows-x64.zip](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.1/birdweatherviz3-windows-x64.zip) |
-| macOS (Apple Silicon — M1/M2/M3/M4) | [birdweatherviz3-macos-arm64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.1/birdweatherviz3-macos-arm64.tar.gz) |
-| macOS (Intel) | [birdweatherviz3-macos-x64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.1/birdweatherviz3-macos-x64.tar.gz) |
-| Linux (x64) | [birdweatherviz3-linux-x64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.1/birdweatherviz3-linux-x64.tar.gz) |
+| Windows (x64) | [birdweatherviz3-windows-x64.zip](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.2/birdweatherviz3-windows-x64.zip) |
+| macOS (Apple Silicon — M1/M2/M3/M4) | [birdweatherviz3-macos-arm64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.2/birdweatherviz3-macos-arm64.tar.gz) |
+| macOS (Intel) | [birdweatherviz3-macos-x64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.2/birdweatherviz3-macos-x64.tar.gz) |
+| Linux (x64) | [birdweatherviz3-linux-x64.tar.gz](https://github.com/lostculture/BirdWeatherViz3/releases/download/v2.2.2/birdweatherviz3-linux-x64.tar.gz) |
 
 1. Download the archive for your OS above
 2. Extract it

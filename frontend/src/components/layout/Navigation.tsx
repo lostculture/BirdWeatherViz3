@@ -8,19 +8,28 @@
 
 import React, { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { systemApi } from '../../api'
+import { authApi, systemApi } from '../../api'
 import SyncAllButton from '../SyncAllButton'
 
 const Navigation: React.FC = () => {
   const location = useLocation()
   const [version, setVersion] = useState<string | null>(null)
+  const [mode, setMode] = useState<string | null>(null)
 
   useEffect(() => {
     systemApi
       .getInfo()
-      .then((info) => setVersion(info.version))
+      .then((info) => {
+        setVersion(info.version)
+        setMode(info.mode)
+      })
       .catch((err) => console.debug('System info fetch failed:', err))
   }, [])
+
+  // Show the Sync All button only when the user can actually use it: web-mode
+  // visitors who haven't logged in see a clean header with no broken sync
+  // affordance. Desktop mode always shows it (auth is bypassed).
+  const showSyncButton = mode === 'desktop' || authApi.isAuthenticated()
 
   const navItems = [
     { path: '/', label: 'Daily Detections' },
@@ -61,9 +70,11 @@ const Navigation: React.FC = () => {
                 {item.label}
               </Link>
             ))}
-            <div className="ml-2 pl-2 border-l border-white/30">
-              <SyncAllButton variant="header" />
-            </div>
+            {showSyncButton && (
+              <div className="ml-2 pl-2 border-l border-white/30">
+                <SyncAllButton variant="header" />
+              </div>
+            )}
           </div>
         </div>
       </div>
