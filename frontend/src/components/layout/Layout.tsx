@@ -6,7 +6,7 @@
  */
 
 import React, { ReactNode, useEffect, useRef, useState } from 'react'
-import { settingsApi, stationsApi, systemApi } from '../../api'
+import { authApi, settingsApi, stationsApi, systemApi } from '../../api'
 import type { UpdateInfo } from '../../api/system'
 import { useSync } from '../../context/SyncContext'
 import FilterBar from './FilterBar'
@@ -60,6 +60,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
     const maybeAutoSync = async () => {
       try {
+        // Skip silently for unauthenticated visitors. The backend scheduler
+        // (apscheduler, every 10 min) keeps detections fresh without any
+        // frontend interaction; auto-sync-on-load is just a "catch up
+        // immediately" nicety for logged-in users and the desktop app.
+        const info = await systemApi.getInfo().catch(() => null)
+        const isDesktop = info?.mode === 'desktop'
+        if (!isDesktop && !authApi.isAuthenticated()) return
+
         const enabled = await settingsApi.getAutoUpdateOnStart()
         if (!enabled) return
 
