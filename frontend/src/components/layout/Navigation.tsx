@@ -6,12 +6,21 @@
  * Version: 1.1.0
  */
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { systemApi } from '../../api'
 import SyncAllButton from '../SyncAllButton'
 
 const Navigation: React.FC = () => {
   const location = useLocation()
+  const [version, setVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    systemApi
+      .getInfo()
+      .then((info) => setVersion(info.version))
+      .catch((err) => console.debug('System info fetch failed:', err))
+  }, [])
 
   const navItems = [
     { path: '/', label: 'Daily Detections' },
@@ -36,7 +45,7 @@ const Navigation: React.FC = () => {
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-2">
             <span className="text-xl font-bold">BirdWeatherViz3</span>
-            <span className="text-sm opacity-80">v2.0.0</span>
+            {version && <span className="text-sm opacity-80">v{version}</span>}
           </div>
           <div className="flex items-center space-x-1">
             {navItems.map((item) => (
