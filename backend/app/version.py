@@ -1,16 +1,17 @@
 """
 BirdWeatherViz3 Version Information
 
-Version: 2.2.0
+Version: 2.2.1
 """
 
-__version__ = "2.2.0"
+__version__ = "2.2.1"
 __author__ = "BirdWeatherViz3 Contributors"
 __description__ = "Next-generation bird detection visualization platform"
 __license__ = "Proprietary"
 
 # Version history
 VERSION_HISTORY = {
+    "2.2.1": "Show running version in the page footer (was hidden behind /system/info only)",  # 2026-04-26
     "2.2.0": "Single source of truth for version (backend/app/version.py drives all); /system/info + /system/update-info endpoints with GitHub release polling; update-available banner with per-version dismiss; schema_version setting seeded on startup; scripts/bump_version.py",  # 2026-04-26
     "2.1.2": "Sync hardening — force_full now auto-resumes past max_pages until BirdWeather returns empty; new detection_day_verification table tracks per-(station,date) sync history with a `verified` flag set after two consistent reads; sync uses 7-consecutive-verified-day stop in normal mode for safer catchup",
     "2.1.1": "Sync fixes — main-page Sync All now sends auth headers (was 401-ing in web mode); incremental sync no longer skips backfilled BirdWeather detections (date-cutoff replaced with consecutive-known-ID catchup window); new 'Re-sync full history' button to recover stations whose data was truncated by the old logic",

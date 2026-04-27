@@ -162,6 +162,6 @@ if is_macos:
         bundle_identifier='com.lostculture.birdweatherviz3',
         info_plist={
             'NSHighResolutionCapable': 'True',
-            'CFBundleShortVersionString': '2.2.0',
+            'CFBundleShortVersionString': '2.2.1',
         },
     )
