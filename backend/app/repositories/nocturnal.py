@@ -37,7 +37,7 @@ class NocturnalRepository:
         )
         return {
             r.id: {
-                'group': taxonomy_groups.classify(r.order, r.family),
+                'group': taxonomy_groups.classify(r.order, r.family, r.scientific_name),
                 'common_name': r.common_name,
                 'scientific_name': r.scientific_name,
                 'family': r.family,

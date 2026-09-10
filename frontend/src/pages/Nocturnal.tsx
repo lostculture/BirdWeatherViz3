@@ -280,9 +280,9 @@ const Nocturnal: React.FC = () => {
       <div>
         <h1 className="text-3xl font-bold">Nocturnal</h1>
         <p className="text-muted-foreground mt-2">
-          Bats, owls and nightjars — what the station hears after dark. Species are grouped by
-          taxonomy, so a station running a bat detector gets its Chiroptera records separated from
-          the birds automatically.
+          Bats, owls and nightjars — what the station hears after dark. Grouping is automatic: birds
+          come from their eBird order and family, and bats are recognised from the scientific name,
+          which is what BirdWeather reports for them at whatever rank the detector resolved.
         </p>
       </div>
 
@@ -536,7 +536,7 @@ const Nocturnal: React.FC = () => {
               ? 'Loading…'
               : noTaxonomy
                 ? 'Load the eBird taxonomy to populate this page.'
-                : 'No nocturnal species detected in this period.'}
+                : 'No nocturnal species detected in this period. Try a longer period.'}
           </div>
         )}
       </div>
