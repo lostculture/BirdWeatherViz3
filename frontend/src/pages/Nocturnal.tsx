@@ -37,6 +37,19 @@ const GROUP_COLORS: Record<string, string> = {
   other: '#64748B',
 }
 
+// Species list behind one chorus bar. Plotly renders <br> in a hovertemplate,
+// so the list travels as a preformatted string in customdata.
+const chorusHoverText = (
+  species: Array<{ common_name: string; detection_count: number }>,
+): string => {
+  if (species.length === 0) return ''
+  const width = Math.max(...species.map((sp) => sp.detection_count.toLocaleString().length))
+  const lines = species.map(
+    (sp) => `${sp.detection_count.toLocaleString().padStart(width)} · ${sp.common_name}`,
+  )
+  return `<br><br><b>Top species</b><br>${lines.join('<br>')}`
+}
+
 const EMPTY_SUMMARY: NocturnalSummary = {
   taxonomy_available: true,
   groups: [],
@@ -118,8 +131,9 @@ const Nocturnal: React.FC = () => {
         name: 'From sunset',
         x: dusk.data.map((d) => d.minutes_from_sunset),
         y: dusk.data.map((d) => d.detection_count),
+        customdata: dusk.data.map((d) => chorusHoverText(d.top_species ?? [])),
         marker: { color: '#7C3AED' },
-        hovertemplate: '%{x} min from sunset<br>%{y} detections<extra></extra>',
+        hovertemplate: '%{x} min from sunset<br>%{y} detections%{customdata}<extra></extra>',
       })
     }
 
@@ -129,9 +143,10 @@ const Nocturnal: React.FC = () => {
         name: 'From sunrise',
         x: dawn.data.map((d) => d.minutes_from_sunrise),
         y: dawn.data.map((d) => d.detection_count),
+        customdata: dawn.data.map((d) => chorusHoverText(d.top_species ?? [])),
         marker: { color: '#F59E0B' },
         visible: 'legendonly',
-        hovertemplate: '%{x} min from sunrise<br>%{y} detections<extra></extra>',
+        hovertemplate: '%{x} min from sunrise<br>%{y} detections%{customdata}<extra></extra>',
       })
     }
 
@@ -139,6 +154,7 @@ const Nocturnal: React.FC = () => {
       data: traces,
       layout: {
         title: { text: 'Night Shift — activity around sunset', font: { size: 16 } },
+        hoverlabel: { align: 'left', namelength: -1 },
         xaxis: {
           title: { text: 'Minutes from the solar event' },
           zeroline: true,

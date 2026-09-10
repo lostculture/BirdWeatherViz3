@@ -48,16 +48,27 @@ export interface TemporalDistribution {
   detection_count: number
 }
 
+export interface ChorusSpecies {
+  species_id: number
+  common_name: string
+  english_name?: string | null
+  detection_count: number
+}
+
 export interface DawnChorusPoint {
   minutes_from_sunrise: number
   detection_count: number
   species_count: number
+  /** Most-detected species in this bin, for the hover tooltip. */
+  top_species: ChorusSpecies[]
 }
 
 export interface DuskChorusPoint {
   minutes_from_sunset: number
   detection_count: number
   species_count: number
+  /** Most-detected species in this bin, for the hover tooltip. */
+  top_species: ChorusSpecies[]
 }
 
 export interface RollupTableState {

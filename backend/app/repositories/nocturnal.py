@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models.rollup import DetectionRollup, SolarRollup
 from app.db.models.species import Species
-from app.repositories.analytics import _count_column
+from app.repositories.analytics import AnalyticsRepository, _count_column
 from app.services import taxonomy_groups
 
 
@@ -277,12 +277,18 @@ class NocturnalRepository:
             .all()
         )
 
+        top_by_bin = AnalyticsRepository(self.db)._chorus_top_species(
+            phase, cutoff_date, station_ids, window_minutes, cnt,
+            species_ids=list(species_map),
+        )
+
         key = 'minutes_from_sunrise' if phase == 'sunrise' else 'minutes_from_sunset'
         return [
             {
                 key: int(row.minute_bin),
                 'detection_count': int(row.detection_count or 0),
                 'species_count': int(row.species_count or 0),
+                'top_species': top_by_bin.get(int(row.minute_bin), []),
             }
             for row in rows
             if row.detection_count

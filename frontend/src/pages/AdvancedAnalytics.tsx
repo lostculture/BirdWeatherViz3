@@ -45,6 +45,20 @@ const HEATMAP_COLORSCALE: [number, string][] = [
   [1, '#1E1B4B'], // 100% - darkest
 ]
 
+// Build the hover text listing the species behind one chorus bar. Plotly
+// renders <br> inside a hovertemplate, so the list is a preformatted string
+// passed through customdata.
+const chorusHoverText = (
+  species: Array<{ common_name: string; detection_count: number }>,
+): string => {
+  if (species.length === 0) return ''
+  const width = Math.max(...species.map((sp) => sp.detection_count.toLocaleString().length))
+  const lines = species.map(
+    (sp) => `${sp.detection_count.toLocaleString().padStart(width)} · ${sp.common_name}`,
+  )
+  return `<br><br><b>Top species</b><br>${lines.join('<br>')}`
+}
+
 // Gaussian KDE computation — pure, hoisted so useMemo dep list stays stable
 const computeKDE = (data: number[], bandwidth: number, gridPoints: number[]): number[] => {
   // Gaussian kernel: K(u) = (1/sqrt(2*pi)) * exp(-0.5 * u^2)
@@ -541,6 +555,7 @@ const AdvancedAnalytics: React.FC = () => {
           type: 'bar',
           x: dawnChorusData.map((d) => d.minutes_from_sunrise),
           y: dawnChorusData.map((d) => d.detection_count),
+          customdata: dawnChorusData.map((d) => chorusHoverText(d.top_species ?? [])),
           marker: {
             color: dawnChorusData.map((d) => d.species_count),
             colorscale: 'YlOrRd',
@@ -548,11 +563,12 @@ const AdvancedAnalytics: React.FC = () => {
             colorbar: { title: { text: 'Species' } },
           },
           hovertemplate:
-            '%{x} min from sunrise<br>%{y} detections<br>%{marker.color} species<extra></extra>',
+            '%{x} min from sunrise<br>%{y} detections<br>%{marker.color} species%{customdata}<extra></extra>',
         },
       ],
       layout: {
         title: { text: 'Dawn Chorus Analysis', font: { size: 16 } },
+        hoverlabel: { align: 'left', namelength: -1 },
         xaxis: {
           title: { text: 'Minutes from Sunrise' },
           zeroline: true,
@@ -603,6 +619,7 @@ const AdvancedAnalytics: React.FC = () => {
           type: 'bar',
           x: duskChorusData.map((d) => d.minutes_from_sunset),
           y: duskChorusData.map((d) => d.detection_count),
+          customdata: duskChorusData.map((d) => chorusHoverText(d.top_species ?? [])),
           marker: {
             color: duskChorusData.map((d) => d.species_count),
             colorscale: 'Purples',
@@ -610,11 +627,12 @@ const AdvancedAnalytics: React.FC = () => {
             colorbar: { title: { text: 'Species' } },
           },
           hovertemplate:
-            '%{x} min from sunset<br>%{y} detections<br>%{marker.color} species<extra></extra>',
+            '%{x} min from sunset<br>%{y} detections<br>%{marker.color} species%{customdata}<extra></extra>',
         },
       ],
       layout: {
         title: { text: 'Dusk Chorus Analysis', font: { size: 16 } },
+        hoverlabel: { align: 'left', namelength: -1 },
         xaxis: {
           title: { text: 'Minutes from Sunset' },
           zeroline: true,

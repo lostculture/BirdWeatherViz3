@@ -89,12 +89,29 @@ class WeatherImpact(BaseModel):
     observation_count: int  # Number of time periods
 
 
+class ChorusSpecies(BaseModel):
+    """One species' share of a dawn/dusk chorus bar, for the hover tooltip."""
+
+    species_id: int
+    common_name: str
+    detection_count: int
+    english_name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
+
+
 class DawnChorusPoint(BaseModel):
     """Data point for dawn chorus analysis (sunrise-relative)."""
 
     minutes_from_sunrise: int  # Negative = before sunrise
     detection_count: int
     species_count: int  # Number of unique species
+    top_species: List[ChorusSpecies] = Field(
+        default_factory=list,
+        description="Most-detected species in this bin, for the hover tooltip",
+    )
 
 
 class DuskChorusPoint(BaseModel):
@@ -108,6 +125,10 @@ class DuskChorusPoint(BaseModel):
     minutes_from_sunset: int  # Negative = before sunset
     detection_count: int
     species_count: int
+    top_species: List[ChorusSpecies] = Field(
+        default_factory=list,
+        description="Most-detected species in this bin, for the hover tooltip",
+    )
 
 
 class RollupTableState(BaseModel):

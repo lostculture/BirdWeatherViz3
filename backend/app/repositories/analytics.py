@@ -26,6 +26,9 @@ from app.db.models.rollup import DetectionRollup, SolarRollup, CONFIDENCE_BUCKET
 from app.db.models.species import Species
 from app.db.models.weather import Weather
 
+# Species listed in a dawn/dusk chorus bar's hover tooltip.
+CHORUS_TOP_SPECIES = 10
+
 MONTH_NAMES = [
     '', 'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
@@ -423,16 +426,85 @@ class AnalyticsRepository:
             .all()
         )
 
+        top_by_bin = self._chorus_top_species(
+            phase, cutoff_date, station_ids, window_minutes, cnt
+        )
+
         key = 'minutes_from_sunrise' if phase == 'sunrise' else 'minutes_from_sunset'
         return [
             {
                 key: int(row.minute_bin),
                 'detection_count': int(row.detection_count or 0),
                 'species_count': int(row.species_count or 0),
+                'top_species': top_by_bin.get(int(row.minute_bin), []),
             }
             for row in rows
             if row.detection_count
         ]
+
+    def _chorus_top_species(
+        self,
+        phase: str,
+        cutoff_date: date,
+        station_ids: Optional[List[int]],
+        window_minutes: int,
+        cnt,
+        limit: int = CHORUS_TOP_SPECIES,
+        species_ids: Optional[List[int]] = None,
+    ) -> dict:
+        """
+        The most-detected species in each minute bin, for hover tooltips.
+
+        One grouped scan of the solar rollup, ranked per bin in Python. The
+        rollup already stores counts per species per bin, so this costs about
+        the same as the totals query beside it.
+        """
+        query = (
+            self.db.query(
+                SolarRollup.minute_bin,
+                SolarRollup.species_id,
+                func.sum(cnt).label('detection_count'),
+            )
+            .filter(SolarRollup.phase == phase)
+            .filter(SolarRollup.detection_date >= cutoff_date)
+            .filter(SolarRollup.minute_bin >= -window_minutes)
+            .filter(SolarRollup.minute_bin <= window_minutes)
+            .filter(cnt > 0)
+        )
+        if species_ids:
+            query = query.filter(SolarRollup.species_id.in_(species_ids))
+        query = self._scoped(query, station_ids, model=SolarRollup)
+
+        rows = query.group_by(SolarRollup.minute_bin, SolarRollup.species_id).all()
+        if not rows:
+            return {}
+
+        by_bin: dict = defaultdict(list)
+        for row in rows:
+            count = int(row.detection_count or 0)
+            if count:
+                by_bin[int(row.minute_bin)].append((row.species_id, count))
+
+        # Only the species that actually make a tooltip need names looking up.
+        wanted = set()
+        for entries in by_bin.values():
+            entries.sort(key=lambda e: e[1], reverse=True)
+            del entries[limit:]
+            wanted.update(sid for sid, _ in entries)
+
+        info = self._species_lookup(list(wanted))
+
+        return {
+            minute_bin: [
+                {
+                    'species_id': sid,
+                    'common_name': info.get(sid, ('Unknown', ''))[0],
+                    'detection_count': count,
+                }
+                for sid, count in entries
+            ]
+            for minute_bin, entries in by_bin.items()
+        }
 
     def get_dawn_chorus_data(
         self,
