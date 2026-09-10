@@ -5,14 +5,14 @@
  * Version: 1.0.0
  */
 
+import type { Config, Data, Layout } from 'plotly.js'
 import React from 'react'
 import Plot from 'react-plotly.js'
-import type { PlotParams } from 'react-plotly.js'
 
 interface LineChartProps {
-  data: PlotParams['data']
-  layout?: Partial<PlotParams['layout']>
-  config?: Partial<PlotParams['config']>
+  data: Data[]
+  layout?: Partial<Layout>
+  config?: Partial<Config>
   className?: string
 }
 
@@ -22,7 +22,7 @@ const LineChart: React.FC<LineChartProps> = ({
   config = {},
   className = '',
 }) => {
-  const defaultLayout: Partial<PlotParams['layout']> = {
+  const defaultLayout: Partial<Layout> = {
     autosize: true,
     margin: { l: 50, r: 30, t: 40, b: 50 },
     hovermode: 'closest',
@@ -34,7 +34,7 @@ const LineChart: React.FC<LineChartProps> = ({
     ...layout,
   }
 
-  const defaultConfig: Partial<PlotParams['config']> = {
+  const defaultConfig: Partial<Config> = {
     responsive: true,
     displayModeBar: true,
     displaylogo: false,

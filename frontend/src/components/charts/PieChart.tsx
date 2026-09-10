@@ -6,26 +6,26 @@
  * Version: 1.1.0
  */
 
+import type { Config, Data, Layout } from 'plotly.js'
 import React from 'react'
 import Plot from 'react-plotly.js'
-import type { PlotParams } from 'react-plotly.js'
 
 interface PieChartProps {
-  data: PlotParams['data']
-  layout?: Partial<PlotParams['layout']>
-  config?: Partial<PlotParams['config']>
+  data: Data[]
+  layout?: Partial<Layout>
+  config?: Partial<Config>
   className?: string
 }
 
 const PieChart: React.FC<PieChartProps> = ({ data, layout = {}, config = {}, className = '' }) => {
-  const defaultLayout: Partial<PlotParams['layout']> = {
+  const defaultLayout: Partial<Layout> = {
     autosize: true,
     margin: { l: 30, r: 30, t: 30, b: 30 },
     showlegend: true,
     ...layout,
   }
 
-  const defaultConfig: Partial<PlotParams['config']> = {
+  const defaultConfig: Partial<Config> = {
     responsive: true,
     displayModeBar: true,
     displaylogo: false,

@@ -52,10 +52,12 @@ const ChartPanel: React.FC<ChartPanelProps> = ({
         <div className="flex items-center gap-2 mb-1">
           <h3 className="text-lg font-semibold">{title}</h3>
           {loading && !isEmpty && (
-            <span
-              className="inline-block w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"
-              aria-label="Refreshing"
-            />
+            <span role="status" aria-label="Refreshing">
+              <span
+                aria-hidden="true"
+                className="inline-block w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"
+              />
+            </span>
           )}
         </div>
       )}

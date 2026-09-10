@@ -334,5 +334,5 @@ If you encounter issues:
 
 ---
 
-**Version:** 2.2.2
+**Version:** 2.3.0
 **Last Updated:** 2026-04

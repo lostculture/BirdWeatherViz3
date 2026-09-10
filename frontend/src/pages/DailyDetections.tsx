@@ -296,7 +296,7 @@ const DailyDetections: React.FC = () => {
     const rows = Math.ceil(stationNames.length / cols)
 
     const traces: Data[] = []
-    const annotations: Partial<import('plotly.js').Annotations>[] = []
+    const annotations: Partial<import('plotly.js').Annotation>[] = []
 
     stationNames.forEach((stationName, idx) => {
       const data = stationGroups[stationName]

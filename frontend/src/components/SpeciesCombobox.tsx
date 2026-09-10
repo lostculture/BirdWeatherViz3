@@ -39,7 +39,7 @@ const SpeciesCombobox: React.FC<SpeciesComboboxProps> = ({
   const [open, setOpen] = useState(false)
   const [highlighted, setHighlighted] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
-  const listRef = useRef<HTMLUListElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const selected = useMemo(
     () => species.find((sp) => sp.id === selectedId) ?? null,
@@ -131,6 +131,9 @@ const SpeciesCombobox: React.FC<SpeciesComboboxProps> = ({
         aria-expanded={open}
         aria-controls="species-combobox-list"
         aria-autocomplete="list"
+        aria-activedescendant={
+          open && matches[highlighted] ? `species-option-${matches[highlighted].id}` : undefined
+        }
         autoComplete="off"
         // Show the current selection when idle; swap to the live query as soon
         // as the user starts typing.
@@ -155,19 +158,28 @@ const SpeciesCombobox: React.FC<SpeciesComboboxProps> = ({
       )}
 
       {open && (
-        <ul
+        // Divs rather than ul/li: the listbox/option roles carry the semantics,
+        // and putting an interactive role on a list element is flagged as an
+        // accessibility smell in its own right.
+        <div
           id="species-combobox-list"
           ref={listRef}
           role="listbox"
+          aria-label="Species"
           className="absolute z-20 mt-1 w-full max-h-80 overflow-y-auto bg-white border rounded-lg shadow-lg"
         >
           {matches.length === 0 ? (
-            <li className="px-4 py-3 text-sm text-gray-500">No species match “{query}”</li>
+            <div className="px-4 py-3 text-sm text-gray-500">No species match “{query}”</div>
           ) : (
             matches.map((sp, index) => (
-              <li
+              <div
                 key={sp.id}
+                id={`species-option-${sp.id}`}
                 role="option"
+                // Focus stays on the input throughout — the ARIA combobox
+                // pattern announces the active option via aria-activedescendant
+                // — so options are only programmatically focusable.
+                tabIndex={-1}
                 aria-selected={sp.id === selectedId}
                 onMouseEnter={() => setHighlighted(index)}
                 onMouseDown={(e) => {
@@ -182,15 +194,15 @@ const SpeciesCombobox: React.FC<SpeciesComboboxProps> = ({
               >
                 <div className="text-sm text-gray-900">{sp.common_name}</div>
                 <div className="text-xs text-gray-500 italic">{sp.scientific_name}</div>
-              </li>
+              </div>
             ))
           )}
           {truncated > 0 && (
-            <li className="px-4 py-2 text-xs text-gray-500 border-t bg-gray-50">
+            <div className="px-4 py-2 text-xs text-gray-500 border-t bg-gray-50">
               {truncated.toLocaleString()} more — keep typing to narrow the list
-            </li>
+            </div>
           )}
-        </ul>
+        </div>
       )}
     </div>
   )

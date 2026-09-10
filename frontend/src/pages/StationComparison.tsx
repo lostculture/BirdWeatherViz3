@@ -410,7 +410,7 @@ const StationComparison: React.FC = () => {
     const yAxisMax = Math.ceil(maxCount / tickInterval) * tickInterval + tickInterval // One tick above max
 
     // Create annotations for left-aligned station names (positioned in left margin)
-    const stationAnnotations: Partial<import('plotly.js').Annotations>[] = stationNames.map(
+    const stationAnnotations: Partial<import('plotly.js').Annotation>[] = stationNames.map(
       (name, i) => ({
         x: -0.17, // Position in left margin (negative = left of plot area)
         y: i,

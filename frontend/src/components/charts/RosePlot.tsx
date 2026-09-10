@@ -5,15 +5,14 @@
  * Version: 1.0.0
  */
 
-import type { Data } from 'plotly.js'
+import type { Config, Data, Layout } from 'plotly.js'
 import React from 'react'
 import Plot from 'react-plotly.js'
-import type { PlotParams } from 'react-plotly.js'
 
 interface RosePlotProps {
-  data: PlotParams['data']
-  layout?: Partial<PlotParams['layout']>
-  config?: Partial<PlotParams['config']>
+  data: Data[]
+  layout?: Partial<Layout>
+  config?: Partial<Config>
   className?: string
 }
 
@@ -42,9 +41,9 @@ const RosePlot: React.FC<RosePlotProps> = ({ data, layout = {}, config = {}, cla
     },
     showlegend: false,
     ...layout,
-  } as Partial<PlotParams['layout']>
+  } as Partial<Layout>
 
-  const defaultConfig: Partial<PlotParams['config']> = {
+  const defaultConfig: Partial<Config> = {
     responsive: true,
     displayModeBar: true,
     displaylogo: false,

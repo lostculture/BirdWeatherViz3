@@ -36,7 +36,8 @@ function messageFor(err: unknown): string {
 /**
  * Run `fetcher` whenever `deps` change, tracking loading and error state.
  *
- * @param fetcher   Loader for this panel. Must be stable or wrapped in useCallback.
+ * @param fetcher   Loader for this panel. Held in a ref, so the caller does
+ *                  not need to memoise it.
  * @param deps      Values that should trigger a refetch.
  * @param initial   Value to show before the first response.
  */
@@ -48,7 +49,6 @@ export function useAsyncData<T>(
   const [data, setData] = useState<T>(initial)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [nonce, setNonce] = useState(0)
 
   // Guards against a slow earlier request overwriting a newer one's result.
   const requestId = useRef(0)
@@ -56,9 +56,10 @@ export function useAsyncData<T>(
   const fetcherRef = useRef(fetcher)
   fetcherRef.current = fetcher
 
-  useEffect(() => {
+  // Stable, so it can serve as both the effect body and the Retry handler —
+  // which is why this hook needs no separate "reload nonce" dependency.
+  const run = useCallback(() => {
     const id = ++requestId.current
-    let cancelled = false
 
     setLoading(true)
     setError(null)
@@ -66,25 +67,26 @@ export function useAsyncData<T>(
     fetcherRef
       .current()
       .then((result) => {
-        if (cancelled || id !== requestId.current) return
+        // A newer request has started, or we unmounted: its result wins.
+        if (id !== requestId.current) return
         setData(result)
-      })
-      .catch((err) => {
-        if (cancelled || id !== requestId.current) return
-        setError(messageFor(err))
-      })
-      .finally(() => {
-        if (cancelled || id !== requestId.current) return
         setLoading(false)
       })
+      .catch((err) => {
+        if (id !== requestId.current) return
+        setError(messageFor(err))
+        setLoading(false)
+      })
+  }, [])
 
+  useEffect(() => {
+    run()
     return () => {
-      cancelled = true
+      // Abandon the in-flight request when the dependencies change or the
+      // panel unmounts, so a late response never writes to dead state.
+      requestId.current++
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: the caller declares its own dependencies; `nonce` drives manual reloads
-  }, [...deps, nonce])
+  }, [run, ...deps])
 
-  const reload = useCallback(() => setNonce((n) => n + 1), [])
-
-  return { data, loading, error, reload }
+  return { data, loading, error, reload: run }
 }
