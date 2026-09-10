@@ -14,6 +14,7 @@ import { useAsyncData } from '../hooks/useAsyncData'
 import {
   buildSeasonalityAxes,
   RIDGE_HALF_HEIGHT,
+  SEASONALITY_YEAR,
   seasonalityHeight,
   seasonalityPosition,
 } from './seasonalityLayout'
@@ -59,16 +60,35 @@ const chorusHoverText = (
   return `<br><br><b>Top species</b><br>${lines.join('<br>')}`
 }
 
-// Gaussian KDE computation — pure, hoisted so useMemo dep list stays stable
-const computeKDE = (data: number[], bandwidth: number, gridPoints: number[]): number[] => {
+// Weighted Gaussian KDE — pure, hoisted so useMemo dep lists stay stable.
+//
+// Each observation carries a weight (its detection count) rather than being
+// repeated that many times. Mathematically identical to the expanded form, but
+// the cost is one term per distinct date instead of one per detection: for the
+// seasonality plot that is ~24k terms instead of ~2.4M, which is the
+// difference between a visible freeze and an instant render. It also drops the
+// per-point cap the expanded version needed, which had been flattening the
+// most abundant species.
+const computeWeightedKDE = (
+  positions: number[],
+  weights: number[],
+  bandwidth: number,
+  gridPoints: number[],
+): number[] => {
+  let totalWeight = 0
+  for (const w of weights) totalWeight += w
+  if (totalWeight === 0) return gridPoints.map(() => 0)
+
+  const scale = totalWeight * bandwidth * Math.sqrt(2 * Math.PI)
+
   // Gaussian kernel: K(u) = (1/sqrt(2*pi)) * exp(-0.5 * u^2)
   return gridPoints.map((x) => {
     let sum = 0
-    for (const xi of data) {
-      const u = (x - xi) / bandwidth
-      sum += Math.exp(-0.5 * u * u)
+    for (let i = 0; i < positions.length; i++) {
+      const u = (x - positions[i]) / bandwidth
+      sum += weights[i] * Math.exp(-0.5 * u * u)
     }
-    return sum / (data.length * bandwidth * Math.sqrt(2 * Math.PI))
+    return sum / scale
   })
 }
 
@@ -80,9 +100,10 @@ const AdvancedAnalytics: React.FC = () => {
   const [bubbleLimit, setBubbleLimit] = useState(30)
   const [phenologyYear, setPhenologyYear] = useState(0) // 0 = Rolling 12 months (default)
   const [rollups, setRollups] = useState<RollupStatus | null>(null)
-  // 'date' pooling saturates at 1.00 for every common species once more than a
-  // couple of stations report, so same-station-same-hour is the default.
-  const [coOccurrenceGrain, setCoOccurrenceGrain] = useState<'hour' | 'day' | 'date'>('hour')
+  // Pooling stations ('date') saturates at 1.00 for every common species, and
+  // hour-grain spreads so low that the matrix reads as uniformly pale. Same
+  // station, same day keeps real contrast without either failure.
+  const [coOccurrenceGrain, setCoOccurrenceGrain] = useState<'hour' | 'day' | 'date'>('day')
 
   const stationIds = selectedStations.length > 0 ? selectedStations.join(',') : undefined
 
@@ -848,13 +869,13 @@ const AdvancedAnalytics: React.FC = () => {
   // view. A single tall subplot put the only axis at the very bottom, hundreds
   // of pixels below whatever you were looking at.
   const seasonalityChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
-    if (temporalData.length === 0) {
+    if (seasonalityData.length === 0) {
       return { data: [], layout: {} }
     }
 
     // Group temporal data by species
     const speciesGroups = new Map<string, TemporalDistribution[]>()
-    temporalData.forEach((d) => {
+    seasonalityData.forEach((d) => {
       if (!speciesGroups.has(d.common_name)) {
         speciesGroups.set(d.common_name, [])
       }
@@ -874,10 +895,11 @@ const AdvancedAnalytics: React.FC = () => {
       return { data: [], layout: {} }
     }
 
-    // Determine date range
-    const allDates = temporalData.map((d) => new Date(d.date).getTime())
-    const minDate = Math.min(...allDates)
-    const maxDate = Math.max(...allDates)
+    // The backend folds every year onto one calendar year, so pin the axis to
+    // the whole year rather than to whatever range happens to hold detections.
+    // A June species should read as a June species, not fill the plot.
+    const minDate = Date.UTC(SEASONALITY_YEAR, 0, 1)
+    const maxDate = Date.UTC(SEASONALITY_YEAR, 11, 31)
     const dateRange = maxDate - minDate
     const bandwidth = dateRange / 30 // Bandwidth: ~1 month
 
@@ -921,20 +943,22 @@ const AdvancedAnalytics: React.FC = () => {
     speciesOrdered.forEach((species, idx) => {
       const { positionInRow, axisSuffix } = seasonalityPosition(idx)
 
-      // Expand dates by detection count (each detection contributes to the density)
-      const expandedDates: number[] = []
+      // One weighted observation per calendar day, rather than one per
+      // detection — see computeWeightedKDE.
+      const positions: number[] = []
+      const weights: number[] = []
       species.data.forEach((d) => {
-        const dateMs = new Date(d.date).getTime()
-        for (let i = 0; i < Math.min(d.detection_count, 100); i++) {
-          expandedDates.push(dateMs)
+        if (d.detection_count > 0) {
+          positions.push(new Date(d.date).getTime())
+          weights.push(d.detection_count)
         }
       })
 
-      if (expandedDates.length === 0) return
+      if (positions.length === 0) return
 
-      // Compute KDE
-      const density = computeKDE(expandedDates, bandwidth, gridDates)
+      const density = computeWeightedKDE(positions, weights, bandwidth, gridDates)
       const maxDensity = Math.max(...density)
+      if (!(maxDensity > 0)) return
 
       const normalizedDensity = density.map((d) => (d / maxDensity) * RIDGE_HALF_HEIGHT)
       const yBaseline = positionInRow
@@ -1294,14 +1318,14 @@ const AdvancedAnalytics: React.FC = () => {
             onChange={(e) => setCoOccurrenceGrain(e.target.value as 'hour' | 'day' | 'date')}
             className="px-3 py-1 border rounded text-sm"
           >
-            <option value="hour">hour, at the same station</option>
             <option value="day">day, at the same station</option>
-            <option value="date">day, anywhere</option>
+            <option value="hour">hour, at the same station</option>
+            <option value="date">day, anywhere (saturates on multi-station data)</option>
           </select>
         </div>
 
         <ChartPanel
-          description="Species co-occurrence based on the Jaccard similarity index; darker means more often detected together. Pooling by day across every station saturates at 1.00 for common species, which is why the default is the same station in the same hour."
+          description="Species co-occurrence based on the Jaccard similarity index; darker means more often detected together. Counted per station, so two species have to be heard at the same place to count — pooling every station together makes each common species look identical to all the others."
           loading={coOccurrence.loading}
           error={coOccurrence.error}
           isEmpty={coOccurrenceData.length === 0}

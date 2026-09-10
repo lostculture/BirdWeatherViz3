@@ -15,6 +15,13 @@
  * Version: 1.0.0
  */
 
+/**
+ * The reference year the backend folds every year of history onto, so the plot
+ * reads as seasonality rather than as a slice of recent history. A leap year,
+ * so 29 February has somewhere to go. Only month names are ever shown.
+ */
+export const SEASONALITY_YEAR = 2024
+
 /** Species per stacked subplot row. */
 export const SEASONALITY_ROW_SIZE = 3
 /** Pixel height of one row: its ridgelines plus room for the axis beneath. */

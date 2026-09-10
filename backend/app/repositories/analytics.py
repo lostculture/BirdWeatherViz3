@@ -813,20 +813,22 @@ class AnalyticsRepository:
         months: int = 6,
         min_confidence: float = 0.7,
         limit: int = 20,
-        granularity: str = "hour",
+        granularity: str = "day",
     ) -> List[dict]:
         """
         Jaccard similarity between species, over shared detection slots.
 
         ``granularity`` sets what counts as "together":
 
-        * ``hour`` (default) - same station, same date, same hour. The only
-          grain that discriminates on a multi-station database, and the one
-          that means what people expect: heard at the same place at the
-          same time.
-        * ``day``  - same station, same date.
-        * ``date`` - same date anywhere. The original behaviour, kept for
-          single-station databases where it is still meaningful.
+        * ``day`` (default) - same station, same date. Keeps real contrast
+          across the matrix while still requiring the two species to have been
+          heard at the same place.
+        * ``hour`` - same station, same date, same hour. Statistically the
+          sharpest, but the values land low enough that the matrix can read as
+          uniformly pale.
+        * ``date`` - same date anywhere. The original behaviour; saturates at
+          1.00 for every common species once more than a couple of stations
+          report, so it is only meaningful on a single-station database.
         """
         grain = self.CO_OCCURRENCE_GRAINS.get(granularity)
         if grain is None:

@@ -311,7 +311,7 @@ async def get_co_occurrence(
     months: int = Query(6, ge=1, le=12, description="Number of months to analyze"),
     min_confidence: float = Query(0.7, ge=0.0, le=1.0, description="Minimum confidence threshold"),
     limit: int = Query(20, ge=5, le=30, description="Number of species to include"),
-    granularity: str = Query("hour", pattern="^(hour|day|date)$", description="What counts as co-occurring: same station+date+hour, same station+date, or same date anywhere"),
+    granularity: str = Query("day", pattern="^(hour|day|date)$", description="What counts as co-occurring: same station+date (default), same station+date+hour, or same date anywhere"),
     db: Session = Depends(get_db_dependency)
 ):
     """
