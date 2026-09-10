@@ -434,6 +434,16 @@ async def sync_weather_for_detection_days(
     if not result['success'] and result['days_fetched'] == 0:
         raise HTTPException(status_code=400, detail=result['message'])
 
+    # New sunrise/sunset times close gaps in the solar rollup: detections are
+    # synced before the weather for the same day, so the dawn/dusk charts are
+    # missing those days until a refresh re-folds them.
+    if result['days_fetched'] > 0:
+        try:
+            from app.services import rollups
+            rollups.refresh_in_background()
+        except Exception as e:
+            logger.warning(f"Could not schedule rollup refresh: {e}")
+
     return WeatherSyncResponse(
         success=result['success'],
         days_fetched=result['days_fetched'],

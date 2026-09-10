@@ -36,6 +36,10 @@ CHUNK_SIZE = 250_000
 SOLAR_WINDOW_MINUTES = 180
 SOLAR_BIN_MINUTES = 5
 
+# Station-days repaired per healing pass (see heal_solar_gaps). Keeps a first
+# run over years of backfilled weather bounded.
+MAX_HEAL_DAYS = 400
+
 # Guards against two builds racing (scheduler + manual refresh).
 _build_lock = threading.Lock()
 _build_thread: Optional[threading.Thread] = None
@@ -222,6 +226,111 @@ def _fold_solar_chunk(db: Session, low_id: int, high_id: int) -> None:
         db.execute(sql, {"low": low_id, "high": high_id, "phase": phase})
 
 
+def _fold_solar_day(db: Session, station_id: int, day) -> None:
+    """
+    Fold a single station-day into the solar rollup, replacing what is there.
+
+    Used by the healing pass below, which re-does days whose weather arrived
+    after the detections were first folded in.
+    """
+    db.execute(
+        text("DELETE FROM solar_rollups WHERE station_id = :sid AND detection_date = :day"),
+        {"sid": station_id, "day": day},
+    )
+
+    for phase in ("sunrise", "sunset"):
+        sql = text(f"""
+            INSERT INTO solar_rollups (
+                station_id, species_id, detection_date, phase, minute_bin,
+                cnt_all, {_bucket_columns()}
+            )
+            SELECT
+                station_id, species_id, detection_date, :phase,
+                (((delta + 720) / {SOLAR_BIN_MINUTES}) * {SOLAR_BIN_MINUTES}) - 720,
+                COUNT(*),
+                {_bucket_sums()}
+            FROM (
+                SELECT
+                    d.station_id,
+                    d.species_id,
+                    d.detection_date,
+                    d.confidence,
+                    (
+                        ((
+                            (COALESCE(d.detection_hour, CAST(strftime('%H', d.timestamp) AS INTEGER)) * 60
+                             + COALESCE(d.detection_minute, CAST(strftime('%M', d.timestamp) AS INTEGER)))
+                            - (CAST(strftime('%H', w.{phase}) AS INTEGER) * 60
+                               + CAST(strftime('%M', w.{phase}) AS INTEGER))
+                            + 1440 + 720
+                        ) % 1440) - 720
+                    ) AS delta
+                FROM detections d
+                JOIN weather w
+                  ON w.station_id = d.station_id
+                 AND w.weather_date = d.detection_date
+                WHERE d.station_id = :sid
+                  AND d.detection_date = :day
+                  AND w.{phase} IS NOT NULL
+            ) AS d
+            WHERE delta >= -{SOLAR_WINDOW_MINUTES} AND delta <= {SOLAR_WINDOW_MINUTES}
+            GROUP BY station_id, species_id, detection_date,
+                     (((delta + 720) / {SOLAR_BIN_MINUTES}) * {SOLAR_BIN_MINUTES}) - 720
+            ON CONFLICT (station_id, species_id, detection_date, phase, minute_bin)
+            DO UPDATE SET
+                cnt_all = solar_rollups.cnt_all + excluded.cnt_all,
+                {_solar_conflict_updates()}
+        """)
+        db.execute(sql, {"sid": station_id, "day": day, "phase": phase})
+
+
+def heal_solar_gaps(db: Session, max_days: int = MAX_HEAL_DAYS) -> int:
+    """
+    Re-fold station-days that have weather but no solar rollup rows.
+
+    The incremental builder folds detections in id order, and a detection whose
+    day had no sunrise/sunset yet is simply skipped - the watermark then moves
+    past it and it would never be revisited. That happens routinely, because
+    detections are synced before the weather for the same day.
+
+    This pass closes the gap: it is driven from the weather table (one row per
+    station-day, so it stays small even beside ten million detections) and only
+    touches days that have detections, have sun times, and have no solar rows.
+
+    Returns the number of days rebuilt. Capped at ``max_days`` per pass so a
+    first run over years of history stays bounded; the next pass picks up where
+    this one stopped.
+    """
+    rows = db.execute(
+        text("""
+            SELECT w.station_id, w.weather_date
+            FROM weather w
+            WHERE (w.sunrise IS NOT NULL OR w.sunset IS NOT NULL)
+              AND EXISTS (
+                  SELECT 1 FROM detections d
+                  WHERE d.station_id = w.station_id
+                    AND d.detection_date = w.weather_date
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM solar_rollups s
+                  WHERE s.station_id = w.station_id
+                    AND s.detection_date = w.weather_date
+              )
+            ORDER BY w.weather_date DESC
+            LIMIT :limit
+        """),
+        {"limit": max_days},
+    ).all()
+
+    for station_id, day in rows:
+        _fold_solar_day(db, station_id, day)
+
+    if rows:
+        db.commit()
+        logger.info("Rebuilt solar rollups for %s station-days", len(rows))
+
+    return len(rows)
+
+
 def refresh(db: Session, full: bool = False, progress_cb=None) -> dict:
     """
     Bring both rollups up to date with the detections table.
@@ -253,11 +362,19 @@ def refresh(db: Session, full: bool = False, progress_cb=None) -> dict:
     )
 
     if max_id <= start_id:
+        # No new detections, but weather may have arrived for days already
+        # folded in, so the solar rollup can still have gaps to close.
+        healed = heal_solar_gaps(db)
         _set_state(db, "detection", status="idle", message=None,
                    updated_at=started.isoformat())
         _set_state(db, "solar", status="idle", message=None,
                    updated_at=started.isoformat())
-        return {"built": 0, "skipped": True, "max_detection_id": max_id}
+        return {
+            "built": 0,
+            "skipped": True,
+            "solar_days_healed": healed,
+            "max_detection_id": max_id,
+        }
 
     total = max_id - start_id
     _set_state(db, "detection", status="building", total_rows=total,
@@ -295,6 +412,10 @@ def refresh(db: Session, full: bool = False, progress_cb=None) -> dict:
 
             logger.info("Rollup build: %s/%s detections folded", processed, total)
 
+        # Detections are synced before the weather for the same day, so some
+        # of what we just folded had no sun times yet. Close those gaps now.
+        healed = heal_solar_gaps(db)
+
         finished = datetime.now(timezone.utc)
         _set_state(db, "detection", status="idle", message=None,
                    updated_at=finished.isoformat())
@@ -307,6 +428,7 @@ def refresh(db: Session, full: bool = False, progress_cb=None) -> dict:
         return {
             "built": processed,
             "skipped": False,
+            "solar_days_healed": healed,
             "max_detection_id": max_id,
             "elapsed_seconds": elapsed,
         }
