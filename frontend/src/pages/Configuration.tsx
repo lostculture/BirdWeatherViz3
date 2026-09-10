@@ -12,10 +12,12 @@ import {
   DEFAULT_BIRD_SOURCES,
   authApi,
   settingsApi,
+  speciesApi,
   stationsApi,
   weatherApi,
 } from '../api'
 import type { DetectionUploadProgressEvent, TaxonomyStats } from '../api/settings'
+import type { TaxonomyBackfillState } from '../api/species'
 import type { WeatherStationSetting, WeatherStats } from '../api/weather'
 import SyncAllButton from '../components/SyncAllButton'
 import ChangePasswordModal from '../components/auth/ChangePasswordModal'
@@ -80,6 +82,8 @@ const Configuration: React.FC = () => {
   const [uploadingTaxonomy, setUploadingTaxonomy] = useState(false)
   const [taxonomyLanguage, setTaxonomyLanguageState] = useState<string>('en')
   const [savingTaxonomyLanguage, setSavingTaxonomyLanguage] = useState(false)
+  const [backfill, setBackfill] = useState<TaxonomyBackfillState | null>(null)
+  const [startingBackfill, setStartingBackfill] = useState(false)
 
   // DB backup/restore state
   const [dbInfo, setDbInfo] = useState<{
@@ -365,6 +369,41 @@ const Configuration: React.FC = () => {
     } finally {
       setImportingDb(false)
       if (dbImportFileRef.current) dbImportFileRef.current.value = ''
+    }
+  }
+
+  const loadBackfillState = async () => {
+    try {
+      setBackfill(await speciesApi.getTaxonomyBackfill())
+    } catch (err) {
+      console.debug('Taxonomy backfill state unavailable:', err)
+    }
+  }
+
+  useEffect(() => {
+    loadBackfillState()
+  }, [])
+
+  // Poll only while a run is in flight, so an idle Config page is quiet.
+  useEffect(() => {
+    if (backfill?.status !== 'running') return
+    const timer = setInterval(loadBackfillState, 3000)
+    return () => clearInterval(timer)
+  }, [backfill?.status])
+
+  const handleStartBackfill = async () => {
+    setStartingBackfill(true)
+    try {
+      await speciesApi.startTaxonomyBackfill({ detected_only: true })
+      await loadBackfillState()
+    } catch (err: any) {
+      alert(
+        err?.response?.status === 409
+          ? 'A taxonomy lookup is already running.'
+          : `Failed to start taxonomy lookup: ${err?.message || 'Unknown error'}`,
+      )
+    } finally {
+      setStartingBackfill(false)
     }
   }
 
@@ -951,6 +990,81 @@ const Configuration: React.FC = () => {
                     ? `${taxonomyStats.available_languages.length} language(s) available. Changing the selection reloads the app.`
                     : 'Upload the multi-language XLSX file to unlock language choices.'}
                 </p>
+              </div>
+
+              {/* Non-bird taxonomy. The eBird file has no mammals or insects,
+                  so bats arrive with no order or family and drop out of the
+                  Nocturnal page entirely. iNaturalist covers all life. */}
+              <div className="mt-6 pt-4 border-t">
+                <h3 className="font-medium mb-1">Non-bird taxonomy (iNaturalist)</h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  The eBird file covers birds only, so bats, insects and other non-birds have no
+                  family or order — which is what keeps them off the Nocturnal page and out of
+                  family analysis. This looks the missing ones up on iNaturalist, which covers all
+                  life. Existing taxonomy is never overwritten.
+                </p>
+
+                {backfill && backfill.status === 'running' ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="inline-block w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      Looking up {backfill.processed} of {backfill.total}…
+                    </div>
+                    <div className="w-full max-w-xs bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all"
+                        style={{
+                          width: `${backfill.total ? (backfill.processed / backfill.total) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Rate limited to iNaturalist's guidance, so this takes about a second per
+                      species. You can leave this page.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={handleStartBackfill}
+                        disabled={startingBackfill || backfill?.missing === 0}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
+                      >
+                        {startingBackfill ? 'Starting…' : 'Look up missing taxonomy'}
+                      </button>
+                      <span className="text-sm text-gray-600">
+                        {backfill == null
+                          ? ''
+                          : backfill.missing === 0
+                            ? 'All detected species have taxonomy.'
+                            : `${backfill.missing.toLocaleString()} detected species missing taxonomy`}
+                      </span>
+                    </div>
+
+                    {backfill?.status === 'error' && (
+                      <p className="text-xs text-red-600 mt-2">
+                        Last run failed: {backfill.message}
+                      </p>
+                    )}
+                    {backfill?.status === 'idle' && backfill.message && (
+                      <p className="text-xs text-gray-500 mt-2">{backfill.message}</p>
+                    )}
+                    {backfill?.failures && backfill.failures.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="text-xs text-gray-500 cursor-pointer">
+                          {backfill.failures.length} name(s) iNaturalist could not resolve
+                        </summary>
+                        <ul className="text-xs text-gray-500 mt-1 ml-4 list-disc">
+                          {backfill.failures.map((name) => (
+                            <li key={name}>{name}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </>
+                )}
               </div>
             </div>
 

@@ -5,7 +5,7 @@ Endpoints for querying species data and analytics.
 Version: 1.0.0
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
@@ -262,6 +262,56 @@ async def get_overdue_species(
     )
 
     return [OverdueSpecies(**r) for r in results]
+
+
+@router.get("/taxonomy/backfill")
+async def get_taxonomy_backfill_status(
+    detected_only: bool = Query(True, description="Only count species with detections"),
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Report how many species are missing taxonomy, and any run in progress.
+
+    The eBird taxonomy is birds only, so bats and other non-birds arrive with
+    no order or family. That breaks the Nocturnal page, which groups by
+    taxonomy, and leaves family analysis incomplete elsewhere.
+    """
+    from app.services import taxonomy_backfill
+
+    state = taxonomy_backfill.get_state(db)
+    state["missing"] = taxonomy_backfill.count_missing(db, detected_only=detected_only)
+    return state
+
+
+@router.post("/taxonomy/backfill")
+async def start_taxonomy_backfill(
+    detected_only: bool = Query(True, description="Only species with at least one detection"),
+    limit: Optional[int] = Query(None, ge=1, description="Stop after this many species"),
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Fill in missing order/family from iNaturalist, in the background.
+
+    iNaturalist covers all life, so it resolves the species the eBird taxonomy
+    cannot. Existing taxonomy is never overwritten — the eBird import stays
+    authoritative for birds. Requests are rate limited to iNaturalist's
+    guidance, so a large run takes a while; poll GET on this path for progress.
+    """
+    from app.services import taxonomy_backfill
+
+    started = taxonomy_backfill.run_in_background(
+        detected_only=detected_only, limit=limit
+    )
+    if not started:
+        raise HTTPException(
+            status_code=409,
+            detail="A taxonomy backfill is already running",
+        )
+
+    return {
+        "started": True,
+        "missing": taxonomy_backfill.count_missing(db, detected_only=detected_only),
+    }
 
 
 @router.get("/families/stats", response_model=List[FamilyStats])
