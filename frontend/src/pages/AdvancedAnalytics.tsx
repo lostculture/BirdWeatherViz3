@@ -80,6 +80,9 @@ const AdvancedAnalytics: React.FC = () => {
   const [bubbleLimit, setBubbleLimit] = useState(30)
   const [phenologyYear, setPhenologyYear] = useState(0) // 0 = Rolling 12 months (default)
   const [rollups, setRollups] = useState<RollupStatus | null>(null)
+  // 'date' pooling saturates at 1.00 for every common species once more than a
+  // couple of stations report, so same-station-same-hour is the default.
+  const [coOccurrenceGrain, setCoOccurrenceGrain] = useState<'hour' | 'day' | 'date'>('hour')
 
   const stationIds = selectedStations.length > 0 ? selectedStations.join(',') : undefined
 
@@ -171,6 +174,17 @@ const AdvancedAnalytics: React.FC = () => {
     [],
   )
 
+  const seasonality = useAsyncData<TemporalDistribution[]>(
+    () =>
+      analyticsApi.getTemporalDistribution({
+        station_ids: stationIds,
+        limit: 200,
+        mode: 'calendar',
+      }),
+    [stationIds],
+    [],
+  )
+
   const dawnChorus = useAsyncData<DawnChorusPoint[]>(
     () => analyticsApi.getDawnChorus({ station_ids: stationIds, months: 6 }),
     [stationIds],
@@ -206,8 +220,14 @@ const AdvancedAnalytics: React.FC = () => {
   )
 
   const coOccurrence = useAsyncData<CoOccurrenceCell[]>(
-    () => analyticsApi.getCoOccurrence({ station_ids: stationIds, months: 6, limit: 15 }),
-    [stationIds],
+    () =>
+      analyticsApi.getCoOccurrence({
+        station_ids: stationIds,
+        months: 6,
+        limit: 15,
+        granularity: coOccurrenceGrain,
+      }),
+    [stationIds, coOccurrenceGrain],
     [],
   )
 
@@ -222,6 +242,7 @@ const AdvancedAnalytics: React.FC = () => {
   const scatterData = scatter.data
   const confidenceHourData = confidenceHour.data
   const temporalData = temporal.data
+  const seasonalityData = seasonality.data
   const dawnChorusData = dawnChorus.data
   const duskChorusData = duskChorus.data
   const weatherData = weather.data
@@ -959,7 +980,7 @@ const AdvancedAnalytics: React.FC = () => {
     })
 
     return { data: traces, layout: layout as Partial<Layout> }
-  }, [temporalData])
+  }, [seasonalityData])
 
 
   const handleStationToggle = (stationId: number) => {
@@ -982,6 +1003,7 @@ const AdvancedAnalytics: React.FC = () => {
     precip,
     coOccurrence,
     champions,
+    seasonality,
   ].some((panel) => panel.loading)
 
   return (
@@ -1262,8 +1284,24 @@ const AdvancedAnalytics: React.FC = () => {
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Species Relationships</h2>
 
+        <div className="flex items-center gap-2 flex-wrap">
+          <label htmlFor="cooccurrence-grain" className="text-sm font-medium text-gray-700">
+            Count species as together when detected in the same
+          </label>
+          <select
+            id="cooccurrence-grain"
+            value={coOccurrenceGrain}
+            onChange={(e) => setCoOccurrenceGrain(e.target.value as 'hour' | 'day' | 'date')}
+            className="px-3 py-1 border rounded text-sm"
+          >
+            <option value="hour">hour, at the same station</option>
+            <option value="day">day, at the same station</option>
+            <option value="date">day, anywhere</option>
+          </select>
+        </div>
+
         <ChartPanel
-          description="Species co-occurrence based on Jaccard similarity index. Higher values (darker) indicate species frequently detected on the same days."
+          description="Species co-occurrence based on the Jaccard similarity index; darker means more often detected together. Pooling by day across every station saturates at 1.00 for common species, which is why the default is the same station in the same hour."
           loading={coOccurrence.loading}
           error={coOccurrence.error}
           isEmpty={coOccurrenceData.length === 0}
@@ -1284,11 +1322,11 @@ const AdvancedAnalytics: React.FC = () => {
 
         {/* Species Detection Density */}
         <ChartPanel
-          description="Mirrored probability density plot showing detection patterns over time. Species ordered by total detections (highest at top); wider areas mean more frequent detections. A date axis repeats every three species so one stays in view while scrolling."
-          loading={temporal.loading}
-          error={temporal.error}
-          isEmpty={temporalData.length === 0}
-          onRetry={temporal.reload}
+          description="Every year of history folded onto one calendar year, so the shape reads as seasonality rather than as recent history. Species ordered by total detections (highest at top); wider areas mean more frequent detections. A month axis repeats every three species so one stays in view while scrolling."
+          loading={seasonality.loading}
+          error={seasonality.error}
+          isEmpty={seasonalityData.length === 0}
+          onRetry={seasonality.reload}
         >
           <div className="overflow-y-auto max-h-[600px]">
             <Plot

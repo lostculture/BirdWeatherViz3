@@ -190,6 +190,8 @@ export const analyticsApi = {
     station_ids?: string
     min_confidence?: number
     limit?: number
+    /** 'calendar' folds every year onto one Jan-Dec axis. */
+    mode?: 'rolling' | 'calendar'
   }): Promise<TemporalDistribution[]> => {
     return apiClient.get<TemporalDistribution[]>('/analytics/temporal-distribution', params)
   },
@@ -252,6 +254,8 @@ export const analyticsApi = {
    * Get species co-occurrence matrix data
    */
   getCoOccurrence: async (params?: {
+    /** What counts as co-occurring. 'date' saturates at 1.0 on multi-station data. */
+    granularity?: 'hour' | 'day' | 'date'
     station_ids?: string
     months?: number
     min_confidence?: number

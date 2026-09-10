@@ -31,9 +31,11 @@ logger = logging.getLogger(__name__)
 # overhead is negligible, small enough to keep WAL growth and lock windows sane.
 CHUNK_SIZE = 250_000
 
-# Minutes either side of sunrise/sunset kept in the solar rollup. The API caps
-# its window at 180, so building to 180 covers every supported request.
-SOLAR_WINDOW_MINUTES = 180
+# Minutes either side of sunrise/sunset kept in the solar rollup. Six hours,
+# because bats are the reason this table exists and their activity does not
+# tail off: it runs flat from emergence right through to dawn. A three-hour
+# window truncated it mid-peak.
+SOLAR_WINDOW_MINUTES = 360
 SOLAR_BIN_MINUTES = 5
 
 # Station-days repaired per healing pass (see heal_solar_gaps). Keeps a first
@@ -171,8 +173,8 @@ def _fold_solar_chunk(db: Session, low_id: int, high_id: int) -> None:
     Aggregate detections in (low_id, high_id] into the solar rollup.
 
     Minutes-from-event is computed entirely in SQL from the denormalised
-    detection_hour/detection_minute columns and the weather table's sunrise and
-    sunset times, so no detection row ever crosses into Python.
+    detection_hour/detection_minute columns and the solar_times table's sunrise
+    and sunset times, so no detection row ever crosses into Python.
 
     Bins are computed with integer division on a shifted value (delta + 720 is
     always non-negative) so truncation matches floor for negative deltas too.
@@ -208,9 +210,9 @@ def _fold_solar_chunk(db: Session, low_id: int, high_id: int) -> None:
                         ) % 1440) - 720
                     ) AS delta
                 FROM detections d
-                JOIN weather w
+                JOIN solar_times w
                   ON w.station_id = d.station_id
-                 AND w.weather_date = d.detection_date
+                 AND w.solar_date = d.detection_date
                 WHERE d.id > :low AND d.id <= :high
                   AND d.detection_date IS NOT NULL
                   AND w.{phase} IS NOT NULL
@@ -265,9 +267,9 @@ def _fold_solar_day(db: Session, station_id: int, day) -> None:
                         ) % 1440) - 720
                     ) AS delta
                 FROM detections d
-                JOIN weather w
+                JOIN solar_times w
                   ON w.station_id = d.station_id
-                 AND w.weather_date = d.detection_date
+                 AND w.solar_date = d.detection_date
                 WHERE d.station_id = :sid
                   AND d.detection_date = :day
                   AND w.{phase} IS NOT NULL
@@ -289,10 +291,10 @@ def heal_solar_gaps(db: Session, max_days: int = MAX_HEAL_DAYS) -> int:
 
     The incremental builder folds detections in id order, and a detection whose
     day had no sunrise/sunset yet is simply skipped - the watermark then moves
-    past it and it would never be revisited. That happens routinely, because
-    detections are synced before the weather for the same day.
+    past it and it would never be revisited. That happens routinely: a sync adds
+    detections for a day before its sun times have been computed.
 
-    This pass closes the gap: it is driven from the weather table (one row per
+    This pass closes the gap: it is driven from solar_times (one row per
     station-day, so it stays small even beside ten million detections) and only
     touches days that have detections, have sun times, and have no solar rows.
 
@@ -302,20 +304,20 @@ def heal_solar_gaps(db: Session, max_days: int = MAX_HEAL_DAYS) -> int:
     """
     rows = db.execute(
         text("""
-            SELECT w.station_id, w.weather_date
-            FROM weather w
+            SELECT w.station_id, w.solar_date
+            FROM solar_times w
             WHERE (w.sunrise IS NOT NULL OR w.sunset IS NOT NULL)
               AND EXISTS (
-                  SELECT 1 FROM detections d
-                  WHERE d.station_id = w.station_id
-                    AND d.detection_date = w.weather_date
+                  SELECT 1 FROM detection_rollups r
+                  WHERE r.station_id = w.station_id
+                    AND r.detection_date = w.solar_date
               )
               AND NOT EXISTS (
                   SELECT 1 FROM solar_rollups s
                   WHERE s.station_id = w.station_id
-                    AND s.detection_date = w.weather_date
+                    AND s.detection_date = w.solar_date
               )
-            ORDER BY w.weather_date DESC
+            ORDER BY w.solar_date DESC
             LIMIT :limit
         """),
         {"limit": max_days},
@@ -329,6 +331,71 @@ def heal_solar_gaps(db: Session, max_days: int = MAX_HEAL_DAYS) -> int:
         logger.info("Rebuilt solar rollups for %s station-days", len(rows))
 
     return len(rows)
+
+
+SOLAR_SOURCE_KEY = "solar_rollup_source"
+# Includes the window, so widening it also triggers the one-time rebuild —
+# rows built to a narrower window would otherwise stay truncated forever.
+SOLAR_SOURCE_CURRENT = f"computed:{SOLAR_WINDOW_MINUTES}"
+
+# Safety valve on the healing loop, so a pathological state cannot spin forever.
+MAX_HEAL_PASSES = 200
+
+
+def _ensure_solar_times(db: Session) -> int:
+    """Compute any missing sunrise/sunset rows. Never fatal to a build."""
+    try:
+        from app.services import solar
+        return solar.populate_solar_times(db)
+    except Exception as exc:  # noqa: BLE001 - the hourly rollup must still build
+        logger.warning("Could not compute solar times: %s", exc)
+        return 0
+
+
+def _heal_until_done(db: Session) -> int:
+    """Run the healing pass until it finds nothing left to repair."""
+    total = 0
+    for _ in range(MAX_HEAL_PASSES):
+        healed = heal_solar_gaps(db)
+        total += healed
+        if healed == 0:
+            break
+    return total
+
+
+def _migrate_solar_source(db: Session) -> None:
+    """
+    Rebuild the solar rollup once, when its source changes.
+
+    Rows built from the weather table only cover the single station weather is
+    fetched for, and rows built to a narrower window are truncated. Resetting
+    the watermark makes the normal chunked build redo them against the current
+    source and window.
+    """
+    row = db.execute(
+        text("SELECT value FROM settings WHERE key = :k"), {"k": SOLAR_SOURCE_KEY}
+    ).first()
+    if row and row[0] == SOLAR_SOURCE_CURRENT:
+        return
+
+    logger.info("Solar rollup source changed - rebuilding from computed sun times")
+    db.execute(text("DELETE FROM solar_rollups"))
+    _set_state(db, "solar", last_detection_id=0)
+
+    if row:
+        db.execute(
+            text("UPDATE settings SET value = :v WHERE key = :k"),
+            {"v": SOLAR_SOURCE_CURRENT, "k": SOLAR_SOURCE_KEY},
+        )
+    else:
+        db.execute(
+            text(
+                "INSERT INTO settings (key, value, data_type, description) "
+                "VALUES (:k, :v, 'str', 'Source of solar_rollups sunrise/sunset times')"
+            ),
+            {"k": SOLAR_SOURCE_KEY, "v": SOLAR_SOURCE_CURRENT},
+        )
+    db.commit()
 
 
 def refresh(db: Session, full: bool = False, progress_cb=None) -> dict:
@@ -352,8 +419,17 @@ def refresh(db: Session, full: bool = False, progress_cb=None) -> dict:
         _set_state(db, "solar", last_detection_id=0)
         db.commit()
 
+    # Sun times used to come from the weather table, which only ever covers one
+    # nominated station. Any solar rollup built that way is missing every other
+    # station, so it has to be rebuilt once against the computed times.
+    _migrate_solar_source(db)
+
     detection_state = get_state(db, "detection")
     solar_state = get_state(db, "solar")
+
+    # Sun times for everything already rolled up, so the fold below can see
+    # them. Days added by this run are covered by the healing pass afterwards.
+    _ensure_solar_times(db)
 
     max_id = db.execute(text("SELECT COALESCE(MAX(id), 0) FROM detections")).scalar() or 0
     start_id = min(
@@ -362,9 +438,10 @@ def refresh(db: Session, full: bool = False, progress_cb=None) -> dict:
     )
 
     if max_id <= start_id:
-        # No new detections, but weather may have arrived for days already
-        # folded in, so the solar rollup can still have gaps to close.
-        healed = heal_solar_gaps(db)
+        # No new detections, but sun times may be newly available for days
+        # already folded in, so the solar rollup can still have gaps to close.
+        _ensure_solar_times(db)
+        healed = _heal_until_done(db)
         _set_state(db, "detection", status="idle", message=None,
                    updated_at=started.isoformat())
         _set_state(db, "solar", status="idle", message=None,
@@ -412,9 +489,10 @@ def refresh(db: Session, full: bool = False, progress_cb=None) -> dict:
 
             logger.info("Rollup build: %s/%s detections folded", processed, total)
 
-        # Detections are synced before the weather for the same day, so some
-        # of what we just folded had no sun times yet. Close those gaps now.
-        healed = heal_solar_gaps(db)
+        # Days first seen in this run had no sun times when they were folded,
+        # so compute them now and close the resulting gaps.
+        _ensure_solar_times(db)
+        healed = _heal_until_done(db)
 
         finished = datetime.now(timezone.utc)
         _set_state(db, "detection", status="idle", message=None,

@@ -236,7 +236,7 @@ class NocturnalRepository:
         station_ids: Optional[List[int]] = None,
         months: int = 12,
         min_confidence: float = 0.7,
-        window_minutes: int = 180,
+        window_minutes: int = 360,
     ) -> List[dict]:
         """
         Sunset- (or sunrise-) relative activity for nocturnal species only.

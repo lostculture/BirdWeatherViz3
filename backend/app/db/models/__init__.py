@@ -16,7 +16,7 @@ from app.db.models.setting import Setting
 from app.db.models.image_cache import ImageCache
 from app.db.models.taxonomy_translation import TaxonomyTranslation
 from app.db.models.detection_day_verification import DetectionDayVerification
-from app.db.models.rollup import DetectionRollup, SolarRollup, RollupState
+from app.db.models.rollup import DetectionRollup, SolarRollup, SolarTime, RollupState
 
 # Export all models
 __all__ = [
@@ -33,5 +33,6 @@ __all__ = [
     "DetectionDayVerification",
     "DetectionRollup",
     "SolarRollup",
+    "SolarTime",
     "RollupState",
 ]

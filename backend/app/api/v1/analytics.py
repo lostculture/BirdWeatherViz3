@@ -139,13 +139,15 @@ async def get_temporal_distribution(
     station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
     min_confidence: float = Query(0.7, ge=0.0, le=1.0, description="Minimum confidence threshold"),
     limit: int = Query(20, ge=5, le=200, description="Number of top species if not specified"),
+    mode: str = Query("rolling", pattern="^(rolling|calendar)$", description="'rolling' = last N months as real dates; 'calendar' = all years folded onto one calendar year"),
     db: Session = Depends(get_db_dependency)
 ):
     """
     Get temporal distribution data for density visualization.
 
-    Returns daily detection counts per species over time.
-    Useful for KDE/density plots showing when species were active.
+    ``rolling`` returns a timeline of the last `months`. ``calendar`` folds
+    every year of history onto a single January-to-December axis, so the shape
+    reads as seasonality rather than as a slice of recent history.
     """
     species_id_list = None
     if species_ids:
@@ -161,7 +163,8 @@ async def get_temporal_distribution(
         months=months,
         station_ids=station_id_list,
         min_confidence=min_confidence,
-        limit=limit
+        limit=limit,
+        mode=mode
     )
 
 
@@ -170,7 +173,7 @@ async def get_dawn_chorus(
     station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
     months: int = Query(6, ge=1, le=12, description="Number of months to analyze"),
     min_confidence: float = Query(0.7, ge=0.0, le=1.0, description="Minimum confidence threshold"),
-    window_minutes: int = Query(120, ge=30, le=180, description="Minutes before/after sunrise to include"),
+    window_minutes: int = Query(120, ge=30, le=360, description="Minutes before/after sunrise to include"),
     db: Session = Depends(get_db_dependency)
 ):
     """
@@ -197,7 +200,7 @@ async def get_dusk_chorus(
     station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
     months: int = Query(6, ge=1, le=12, description="Number of months to analyze"),
     min_confidence: float = Query(0.7, ge=0.0, le=1.0, description="Minimum confidence threshold"),
-    window_minutes: int = Query(120, ge=30, le=180, description="Minutes before/after sunset to include"),
+    window_minutes: int = Query(120, ge=30, le=360, description="Minutes before/after sunset to include"),
     db: Session = Depends(get_db_dependency)
 ):
     """
@@ -308,12 +311,16 @@ async def get_co_occurrence(
     months: int = Query(6, ge=1, le=12, description="Number of months to analyze"),
     min_confidence: float = Query(0.7, ge=0.0, le=1.0, description="Minimum confidence threshold"),
     limit: int = Query(20, ge=5, le=30, description="Number of species to include"),
+    granularity: str = Query("hour", pattern="^(hour|day|date)$", description="What counts as co-occurring: same station+date+hour, same station+date, or same date anywhere"),
     db: Session = Depends(get_db_dependency)
 ):
     """
     Get species co-occurrence data for matrix visualization.
 
-    Returns Jaccard similarity index for species pairs.
+    Returns the Jaccard similarity index for species pairs. The default `hour`
+    granularity means "heard at the same station in the same hour"; pooling by
+    date alone saturates at 1.00 for every common species once more than a
+    couple of stations are involved.
     """
     station_id_list = None
     if station_ids:
@@ -324,7 +331,8 @@ async def get_co_occurrence(
         station_ids=station_id_list,
         months=months,
         min_confidence=min_confidence,
-        limit=limit
+        limit=limit,
+        granularity=granularity
     )
 
 

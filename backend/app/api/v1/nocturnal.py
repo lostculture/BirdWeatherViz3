@@ -126,7 +126,7 @@ async def get_nocturnal_dusk_chorus(
     station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
     months: int = Query(12, ge=1, le=60, description="Number of months to analyze"),
     min_confidence: float = Query(0.7, ge=0.0, le=1.0, description="Minimum confidence threshold"),
-    window_minutes: int = Query(180, ge=30, le=180, description="Minutes before/after sunset"),
+    window_minutes: int = Query(360, ge=30, le=360, description="Minutes before/after sunset"),
     db: Session = Depends(get_db_dependency)
 ):
     """
@@ -152,7 +152,7 @@ async def get_nocturnal_dawn_chorus(
     station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
     months: int = Query(12, ge=1, le=60, description="Number of months to analyze"),
     min_confidence: float = Query(0.7, ge=0.0, le=1.0, description="Minimum confidence threshold"),
-    window_minutes: int = Query(180, ge=30, le=180, description="Minutes before/after sunrise"),
+    window_minutes: int = Query(360, ge=30, le=360, description="Minutes before/after sunrise"),
     db: Session = Depends(get_db_dependency)
 ):
     """

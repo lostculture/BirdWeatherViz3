@@ -21,7 +21,7 @@ anything below 0.50 falls back to ``cnt_all``.
 Version: 1.0.0
 """
 
-from sqlalchemy import Column, Integer, Float, String, Date, Index
+from sqlalchemy import Column, Integer, Float, String, Date, Time, Index
 
 from app.db.base import Base
 
@@ -119,6 +119,31 @@ class SolarRollup(Base):
     __table_args__ = (
         Index("ix_solar_phase_date", "phase", "detection_date"),
         Index("ix_solar_date_station", "detection_date", "station_id"),
+    )
+
+
+class SolarTime(Base):
+    """
+    Sunrise and sunset for one station on one date.
+
+    Computed from the station's coordinates (see services/solar.py) rather than
+    fetched, because weather is only collected for a single nominated station
+    and every other station would otherwise have no sun times — which silently
+    kept their detections out of the dawn and dusk chorus charts entirely.
+    """
+
+    __tablename__ = "solar_times"
+
+    station_id = Column(Integer, primary_key=True, nullable=False)
+    solar_date = Column(Date, primary_key=True, nullable=False)
+
+    # Local wall-clock times, matching how detection_hour/minute are stored.
+    sunrise = Column(Time, nullable=True)
+    sunset = Column(Time, nullable=True,
+                    comment="NULL inside a polar day or night")
+
+    __table_args__ = (
+        Index("ix_solar_times_date", "solar_date"),
     )
 
 

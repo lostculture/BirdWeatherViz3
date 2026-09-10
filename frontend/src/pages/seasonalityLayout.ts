@@ -64,11 +64,15 @@ export function buildSeasonalityAxes(
     axes.push({
       suffix,
       xaxis: {
-        title: { text: 'Date', standoff: 6 },
+        title: { text: 'Time of year', standoff: 6 },
         type: 'date',
         anchor: `y${suffix}`,
         domain: [0, 1],
         tickfont: { size: 10 },
+        // Month names only — the data is folded onto one reference year, so
+        // showing that year would be actively misleading.
+        dtick: 'M1',
+        tickformat: '%b',
         // Same window on every row, so the rows read as one chart.
         range: xRange,
       },

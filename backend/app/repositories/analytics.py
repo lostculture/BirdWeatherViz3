@@ -29,6 +29,10 @@ from app.db.models.weather import Weather
 # Species listed in a dawn/dusk chorus bar's hover tooltip.
 CHORUS_TOP_SPECIES = 10
 
+# Every year of history folds onto this year in calendar mode. A leap year,
+# so 29 February has somewhere to go.
+CALENDAR_REFERENCE_YEAR = 2024
+
 MONTH_NAMES = [
     '', 'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
@@ -339,11 +343,29 @@ class AnalyticsRepository:
         months: int = 6,
         station_ids: Optional[List[int]] = None,
         min_confidence: float = 0.7,
-        limit: int = 20
+        limit: int = 20,
+        mode: str = "rolling",
     ) -> List[dict]:
-        """Daily detection counts per species, for the density/KDE plot."""
-        cutoff_date = date.today() - timedelta(days=months * 30)
+        """
+        Daily detection counts per species, for the density/KDE plot.
+
+        ``mode='rolling'`` returns real dates over the last ``months`` — a
+        timeline. ``mode='calendar'`` folds every year of history onto a single
+        calendar year, so the x axis runs January to December and the shape
+        reads as seasonality rather than as a slice of recent history. Several
+        years of the same species reinforce each other instead of appearing as
+        separate humps.
+        """
+        if mode not in ("rolling", "calendar"):
+            raise ValueError(f"Unknown mode {mode!r}")
+
         cnt = _count_column(DetectionRollup, min_confidence)
+        # Calendar mode deliberately spans all history; a cutoff would defeat
+        # the point of folding the years together.
+        cutoff_date = (
+            date.min if mode == "calendar"
+            else date.today() - timedelta(days=months * 30)
+        )
 
         if not species_ids:
             species_ids = [
@@ -355,6 +377,41 @@ class AnalyticsRepository:
             return []
 
         info = self._species_lookup(species_ids)
+
+        if mode == "calendar":
+            # Group by month and day, discarding the year.
+            month_day = func.strftime('%m-%d', DetectionRollup.detection_date).label('md')
+            query = (
+                self.db.query(
+                    DetectionRollup.species_id,
+                    month_day,
+                    func.sum(cnt).label('detection_count'),
+                )
+                .filter(DetectionRollup.species_id.in_(species_ids))
+            )
+            query = self._scoped(query, station_ids)
+            rows = query.group_by(DetectionRollup.species_id, month_day).all()
+
+            results = []
+            for row in rows:
+                if not row.detection_count:
+                    continue
+                try:
+                    month, day = (int(part) for part in row.md.split('-'))
+                    # CALENDAR_REFERENCE_YEAR is a leap year, so 29 February
+                    # survives instead of being dropped or folded into the 28th.
+                    plotted = date(CALENDAR_REFERENCE_YEAR, month, day)
+                except (ValueError, AttributeError):
+                    continue
+                results.append({
+                    'species_id': row.species_id,
+                    'common_name': info.get(row.species_id, ('Unknown', ''))[0],
+                    'date': plotted,
+                    'detection_count': int(row.detection_count),
+                })
+
+            results.sort(key=lambda r: r['date'])
+            return results
 
         query = (
             self.db.query(
@@ -739,14 +796,42 @@ class AnalyticsRepository:
 
         return results
 
+    # How a "co-occurrence slot" is defined. Pooling by date alone is
+    # degenerate once several stations are involved: every common species is
+    # detected somewhere every day, so every Jaccard index is 1.00 and the
+    # matrix is a single flat colour.
+    CO_OCCURRENCE_GRAINS = {
+        "hour": (DetectionRollup.station_id, DetectionRollup.detection_date,
+                 DetectionRollup.hour),
+        "day": (DetectionRollup.station_id, DetectionRollup.detection_date),
+        "date": (DetectionRollup.detection_date,),
+    }
+
     def get_co_occurrence_matrix(
         self,
         station_ids: Optional[List[int]] = None,
         months: int = 6,
         min_confidence: float = 0.7,
-        limit: int = 20
+        limit: int = 20,
+        granularity: str = "hour",
     ) -> List[dict]:
-        """Jaccard similarity between species, by days co-detected."""
+        """
+        Jaccard similarity between species, over shared detection slots.
+
+        ``granularity`` sets what counts as "together":
+
+        * ``hour`` (default) - same station, same date, same hour. The only
+          grain that discriminates on a multi-station database, and the one
+          that means what people expect: heard at the same place at the
+          same time.
+        * ``day``  - same station, same date.
+        * ``date`` - same date anywhere. The original behaviour, kept for
+          single-station databases where it is still meaningful.
+        """
+        grain = self.CO_OCCURRENCE_GRAINS.get(granularity)
+        if grain is None:
+            raise ValueError(f"Unknown granularity {granularity!r}")
+
         cutoff_date = date.today() - timedelta(days=months * 30)
         cnt = _count_column(DetectionRollup, min_confidence)
 
@@ -757,21 +842,23 @@ class AnalyticsRepository:
             return []
 
         species_ids = [sid for sid, _ in top]
-        total_days = dict(top)
+        # Reported as "total days" in the tooltip regardless of grain: active
+        # days is the number a reader can interpret, where a slot count is not.
+        active_days = dict(top)
         info = self._species_lookup(species_ids)
 
-        dates_query = (
-            self.db.query(DetectionRollup.species_id, DetectionRollup.detection_date)
+        slots_query = (
+            self.db.query(DetectionRollup.species_id, *grain)
             .filter(DetectionRollup.species_id.in_(species_ids))
             .filter(DetectionRollup.detection_date >= cutoff_date)
             .filter(cnt > 0)
             .distinct()
         )
-        dates_query = self._scoped(dates_query, station_ids)
+        slots_query = self._scoped(slots_query, station_ids)
 
-        species_dates = {sid: set() for sid in species_ids}
-        for row in dates_query.all():
-            species_dates[row.species_id].add(row.detection_date)
+        species_slots = {sid: set() for sid in species_ids}
+        for row in slots_query.all():
+            species_slots[row[0]].add(tuple(row[1:]))
 
         results = []
         for i, sp1_id in enumerate(species_ids):
@@ -779,19 +866,19 @@ class AnalyticsRepository:
                 sp1_name = info.get(sp1_id, ('Unknown', ''))[0]
                 sp2_name = info.get(sp2_id, ('Unknown', ''))[0]
 
-                sp1_dates = species_dates[sp1_id]
-                sp2_dates = species_dates[sp2_id]
+                sp1_slots = species_slots[sp1_id]
+                sp2_slots = species_slots[sp2_id]
 
-                intersection = len(sp1_dates & sp2_dates)
-                union = len(sp1_dates | sp2_dates)
+                intersection = len(sp1_slots & sp2_slots)
+                union = len(sp1_slots | sp2_slots)
                 jaccard = intersection / union if union > 0 else 0
 
                 results.append({
                     'species_1': sp1_name,
                     'species_2': sp2_name,
                     'co_occurrence_days': intersection,
-                    'species_1_total_days': total_days[sp1_id],
-                    'species_2_total_days': total_days[sp2_id],
+                    'species_1_total_days': active_days[sp1_id],
+                    'species_2_total_days': active_days[sp2_id],
                     'jaccard_index': round(jaccard, 3),
                 })
 
@@ -800,8 +887,8 @@ class AnalyticsRepository:
                         'species_1': sp2_name,
                         'species_2': sp1_name,
                         'co_occurrence_days': intersection,
-                        'species_1_total_days': total_days[sp2_id],
-                        'species_2_total_days': total_days[sp1_id],
+                        'species_1_total_days': active_days[sp2_id],
+                        'species_2_total_days': active_days[sp1_id],
                         'jaccard_index': round(jaccard, 3),
                     })
 

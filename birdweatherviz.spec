@@ -61,6 +61,7 @@ hidden_imports = [
     'app.services.birdweather',
     'app.services.inaturalist',
     'app.services.rollups',
+    'app.services.solar',
     'app.services.taxonomy_backfill',
     'app.services.taxonomy_groups',
     'app.services.taxonomy_translations',
