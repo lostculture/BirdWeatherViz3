@@ -152,6 +152,7 @@ class RollupStatus(BaseModel):
     detections_pending: int
     ready: bool
     building: bool
+    solar_rebuild_pending: bool = False
 
 
 class NocturnalGroup(BaseModel):

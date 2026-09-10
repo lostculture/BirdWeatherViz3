@@ -131,6 +131,7 @@ def get_status(db: Session) -> dict:
         # a shrinking tail. Only a never-built rollup needs the raw fallback.
         "ready": int(detection["last_detection_id"] or 0) > 0 or max_id == 0,
         "building": detection["status"] == "building" or solar["status"] == "building",
+        "solar_rebuild_pending": needs_solar_migration(db),
     }
 
 
@@ -363,6 +364,20 @@ def _heal_until_done(db: Session) -> int:
     return total
 
 
+def needs_solar_migration(db: Session) -> bool:
+    """
+    Whether the solar rollup was built from a superseded source or window.
+
+    Checked separately from the detection watermark: a database that is fully
+    caught up has nothing pending, so nothing would otherwise call refresh()
+    and the migration would never run.
+    """
+    row = db.execute(
+        text("SELECT value FROM settings WHERE key = :k"), {"k": SOLAR_SOURCE_KEY}
+    ).first()
+    return not (row and row[0] == SOLAR_SOURCE_CURRENT)
+
+
 def _migrate_solar_source(db: Session) -> None:
     """
     Rebuild the solar rollup once, when its source changes.
@@ -559,11 +574,19 @@ def ensure_built_on_startup() -> None:
     db = SessionLocal()
     try:
         status = get_status(db)
-        if status["detections_pending"] > 0 and not status["building"]:
+        if status["building"]:
+            return
+
+        if status["detections_pending"] > 0:
             logger.info(
                 "Rollups are %s detections behind - starting background build",
                 status["detections_pending"],
             )
+            refresh_in_background()
+        elif needs_solar_migration(db):
+            # Nothing pending, but the solar rollup's source or window changed,
+            # so it has to be rebuilt before the chorus charts are correct.
+            logger.info("Solar rollup needs rebuilding - starting background build")
             refresh_in_background()
     except Exception as exc:  # noqa: BLE001 - startup must never hard-fail here
         logger.warning("Could not evaluate rollup state on startup: %s", exc)
