@@ -24,7 +24,6 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.db.models.setting import Setting
@@ -94,13 +93,26 @@ def _save_state(db: Session, state: dict) -> None:
 
 
 def count_missing(db: Session, detected_only: bool = True) -> int:
-    """How many species are missing order or family."""
-    return _missing_query(db, detected_only).count()
+    """
+    How many species could still gain taxonomy from a run.
+
+    Names that cannot be looked up are excluded, so the count reaches zero when
+    there is genuinely nothing left to do. Counting them would leave the UI
+    permanently reporting work that no run can ever complete.
+    """
+    return sum(
+        1 for sp in _missing_query(db, detected_only)
+        if is_resolvable(sp.scientific_name)
+    )
 
 
 def _missing_query(db: Session, detected_only: bool):
+    # Missing means *no* taxonomy at all. A row with one column filled is
+    # already placed: an order-rank taxon like 'Chiroptera' has no parent
+    # family by definition, and treating it as incomplete would re-query it on
+    # every run, forever.
     query = db.query(Species).filter(
-        or_(Species.order.is_(None), Species.family.is_(None))
+        Species.order.is_(None), Species.family.is_(None)
     )
     if detected_only:
         # Species with no detections are catalogue padding — thousands of them
