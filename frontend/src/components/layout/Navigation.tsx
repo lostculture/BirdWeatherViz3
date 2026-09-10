@@ -37,6 +37,7 @@ const Navigation: React.FC = () => {
     { path: '/species-details', label: 'Species Details' },
     { path: '/species-list', label: 'Species List' },
     { path: '/stations', label: 'Stations' },
+    { path: '/nocturnal', label: 'Nocturnal' },
     { path: '/advanced-analytics', label: 'Analytics' },
     { path: '/config', label: 'Config' },
   ]

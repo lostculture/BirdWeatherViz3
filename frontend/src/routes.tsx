@@ -9,6 +9,7 @@ import { Route, Routes } from 'react-router-dom'
 import AdvancedAnalytics from './pages/AdvancedAnalytics'
 import Configuration from './pages/Configuration'
 import DailyDetections from './pages/DailyDetections'
+import Nocturnal from './pages/Nocturnal'
 import SpeciesAnalysis from './pages/SpeciesAnalysis'
 import SpeciesDetails from './pages/SpeciesDetails'
 import SpeciesList from './pages/SpeciesList'
@@ -22,6 +23,7 @@ const AppRoutes = () => {
       <Route path="/species-details" element={<SpeciesDetails />} />
       <Route path="/species-list" element={<SpeciesList />} />
       <Route path="/stations" element={<StationComparison />} />
+      <Route path="/nocturnal" element={<Nocturnal />} />
       <Route path="/advanced-analytics" element={<AdvancedAnalytics />} />
       <Route path="/config" element={<Configuration />} />
     </Routes>

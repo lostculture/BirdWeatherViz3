@@ -8,6 +8,8 @@
 import type {
   FamilyStats,
   NewSpeciesThisWeek,
+  OverdueSpecies,
+  ReturningSpecies,
   SpeciesDiscoveryCurve,
   SpeciesDiversityTrend,
   SpeciesResponse,
@@ -90,6 +92,29 @@ export const speciesApi = {
     station_ids?: string
   }): Promise<NewSpeciesThisWeek[]> => {
     return apiClient.get<NewSpeciesThisWeek[]>('/species/new/this-week', params)
+  },
+
+  /**
+   * Get species heard again after a long absence — the returning migrants.
+   */
+  getReturning: async (params?: {
+    station_ids?: string
+    recent_days?: number
+    min_absence_days?: number
+  }): Promise<ReturningSpecies[]> => {
+    return apiClient.get<ReturningSpecies[]>('/species/returning', params)
+  },
+
+  /**
+   * Get species that previous years say should be present now, but aren't.
+   */
+  getOverdue: async (params?: {
+    station_ids?: string
+    absent_days?: number
+    window_days?: number
+    min_prior_years?: number
+  }): Promise<OverdueSpecies[]> => {
+    return apiClient.get<OverdueSpecies[]>('/species/overdue', params)
   },
 
   /**

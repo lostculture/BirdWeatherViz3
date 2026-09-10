@@ -7,7 +7,14 @@
 
 import type { Data } from 'plotly.js'
 import React, { useEffect, useState, useMemo } from 'react'
-import { analyticsApi, speciesApi } from '../api'
+import {
+  analyticsApi,
+  BIRD_INFO_SOURCES,
+  DEFAULT_BIRD_SOURCES,
+  generateBirdLinks,
+  settingsApi,
+  speciesApi,
+} from '../api'
 import type { MonthlyChampion } from '../api/analytics'
 import { BarChart } from '../components/charts'
 import { useFilters } from '../context/FilterContext'
@@ -81,6 +88,17 @@ const SpeciesList: React.FC = () => {
   const [loadingSpecies, setLoadingSpecies] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  // Which bird-info sources to include as URL columns in the CSV export.
+  const [birdInfoSources, setBirdInfoSources] = useState<string[]>(DEFAULT_BIRD_SOURCES)
+
+  useEffect(() => {
+    settingsApi
+      .getBirdInfoSources()
+      .then(setBirdInfoSources)
+      .catch(() => {
+        // Fall back to the defaults; the export still works.
+      })
+  }, [])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — loadData is closed over the filter values and we want to refetch when any of them change
   useEffect(() => {
@@ -196,8 +214,21 @@ const SpeciesList: React.FC = () => {
     )
   }, [allSpecies, searchQuery])
 
-  // CSV export function
+  // CSV export.
+  //
+  // Includes one column per enabled bird-info source (eBird, All About Birds,
+  // Wikipedia, ...), so a spreadsheet of the catalogue can link straight out to
+  // photos and species accounts — issue #24. The columns follow whatever
+  // sources are enabled in Config, so the export matches what the app shows.
   const exportCSV = () => {
+    // Quote every field and double any embedded quotes, per RFC 4180. Common
+    // names contain commas and apostrophes often enough to matter.
+    const quote = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
+
+    const linkSources = birdInfoSources
+      .map((id) => BIRD_INFO_SOURCES[id])
+      .filter((source): source is (typeof BIRD_INFO_SOURCES)[string] => Boolean(source))
+
     const headers = [
       'Common Name',
       'Scientific Name',
@@ -205,21 +236,41 @@ const SpeciesList: React.FC = () => {
       'Total Detections',
       'First Seen',
       'Last Seen',
+      ...linkSources.map((source) => `${source.name} URL`),
     ]
-    const rows = allSpecies.map((sp) => [
-      `"${sp.common_name}"`,
-      `"${sp.scientific_name}"`,
-      `"${sp.family || ''}"`,
-      sp.total_detections || 0,
-      sp.first_seen || '',
-      sp.last_seen || '',
-    ])
-    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+
+    const rows = allSpecies.map((sp) => {
+      const links = generateBirdLinks(
+        sp.common_name,
+        sp.scientific_name,
+        sp.ebird_code,
+        birdInfoSources,
+        undefined,
+        sp.english_name,
+      )
+      const byId = new Map(links.map((link) => [link.source_id, link.url]))
+
+      return [
+        quote(sp.common_name),
+        quote(sp.scientific_name),
+        quote(sp.family || ''),
+        sp.total_detections || 0,
+        quote(sp.first_seen || ''),
+        quote(sp.last_seen || ''),
+        // A source with no usable identifier (no eBird code, say) yields no
+        // link; leave the cell empty rather than emitting a broken URL.
+        ...linkSources.map((source) => quote(byId.get(source.id) || '')),
+      ]
+    })
+
+    const csv = [headers.map(quote).join(','), ...rows.map((r) => r.join(','))].join('\n')
+    // BOM so Excel opens the file as UTF-8 and renders accented names correctly.
+    const blob = new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
     link.download = `species_catalog_${new Date().toISOString().split('T')[0]}.csv`
     link.click()
+    URL.revokeObjectURL(link.href)
   }
 
   // Summary stats

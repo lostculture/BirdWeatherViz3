@@ -54,6 +54,31 @@ export interface DawnChorusPoint {
   species_count: number
 }
 
+export interface DuskChorusPoint {
+  minutes_from_sunset: number
+  detection_count: number
+  species_count: number
+}
+
+export interface RollupTableState {
+  name: string
+  last_detection_id: number
+  status: 'idle' | 'building' | 'error'
+  rows_processed: number
+  total_rows: number
+  message: string | null
+  updated_at: string | null
+}
+
+export interface RollupStatus {
+  detection: RollupTableState
+  solar: RollupTableState
+  max_detection_id: number
+  detections_pending: number
+  ready: boolean
+  building: boolean
+}
+
 export interface WeatherImpact {
   temperature_bin: string | null
   condition: string | null
@@ -168,6 +193,25 @@ export const analyticsApi = {
     window_minutes?: number
   }): Promise<DawnChorusPoint[]> => {
     return apiClient.get<DawnChorusPoint[]>('/analytics/dawn-chorus', params)
+  },
+
+  /**
+   * Get dusk chorus analysis data (sunset-relative)
+   */
+  getDuskChorus: async (params?: {
+    station_ids?: string
+    months?: number
+    min_confidence?: number
+    window_minutes?: number
+  }): Promise<DuskChorusPoint[]> => {
+    return apiClient.get<DuskChorusPoint[]>('/analytics/dusk-chorus', params)
+  },
+
+  /**
+   * Get the build state of the analytics rollups.
+   */
+  getRollupStatus: async (): Promise<RollupStatus> => {
+    return apiClient.get<RollupStatus>('/analytics/rollups/status')
   },
 
   /**

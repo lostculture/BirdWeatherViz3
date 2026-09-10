@@ -9,6 +9,15 @@ export { apiClient } from './client'
 export { authApi } from './auth'
 export { analyticsApi } from './analytics'
 export { detectionsApi } from './detections'
+export { nocturnalApi } from './nocturnal'
+export type {
+  NocturnalGroup,
+  NocturnalGroupKey,
+  NocturnalHourPoint,
+  NocturnalNightPoint,
+  NocturnalSpecies,
+  NocturnalSummary,
+} from './nocturnal'
 export { speciesApi } from './species'
 export { stationsApi } from './stations'
 export {

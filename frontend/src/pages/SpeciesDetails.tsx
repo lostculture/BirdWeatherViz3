@@ -18,6 +18,7 @@ import type {
   TimelinePoint,
 } from '../api/species'
 import { BarChart, LineChart, PieChart } from '../components/charts'
+import SpeciesCombobox from '../components/SpeciesCombobox'
 import type { SpeciesResponse } from '../types/api'
 
 // Helper to get bird image URL from our API
@@ -322,23 +323,14 @@ const SpeciesDetails: React.FC = () => {
         </p>
       </div>
 
-      {/* Species Selector */}
+      {/* Species Selector — a type-to-filter box rather than a <select>, which
+          is unusable once a station has a few hundred species. */}
       <div className="bg-white rounded-lg shadow p-6">
-        <label htmlFor="species-select" className="block text-sm font-medium text-gray-700 mb-2">
-          Select Species to Analyze
-        </label>
-        <select
-          id="species-select"
-          value={selectedSpeciesId || ''}
-          onChange={(e) => setSelectedSpeciesId(Number(e.target.value))}
-          className="w-full md:w-96 p-3 border rounded-lg text-lg focus:ring-2 focus:ring-indigo-brilliant focus:border-indigo-brilliant"
-        >
-          {speciesList.map((species) => (
-            <option key={species.id} value={species.id}>
-              {species.common_name} ({species.scientific_name})
-            </option>
-          ))}
-        </select>
+        <SpeciesCombobox
+          species={speciesList}
+          selectedId={selectedSpeciesId}
+          onSelect={setSelectedSpeciesId}
+        />
       </div>
 
       {selectedSpecies && (

@@ -6,6 +6,7 @@
  */
 
 export { default as DailyDetections } from './DailyDetections'
+export { default as Nocturnal } from './Nocturnal'
 export { default as SpeciesAnalysis } from './SpeciesAnalysis'
 export { default as SpeciesDetails } from './SpeciesDetails'
 export { default as SpeciesList } from './SpeciesList'
