@@ -7,7 +7,7 @@ Version: 1.0.0
 
 from pydantic import BaseModel, Field, model_validator
 from datetime import datetime, date
-from typing import Optional
+from typing import List, Optional
 
 from app.schemas._localize import (
     localize_common_name,
@@ -103,6 +103,58 @@ class NewSpeciesThisWeek(BaseModel):
     ebird_code: Optional[str] = Field(None, description="eBird species code")
     first_detection_date: date = Field(..., description="First detection date this week")
     detection_count: int = Field(default=0, description="Number of detections this week")
+    stations: List[str] = Field(
+        default_factory=list,
+        description="Stations this species is new to",
+    )
+    is_first_ever: bool = Field(
+        default=True,
+        description="True for a first-ever record; False when the species is "
+                    "only new to this particular station",
+    )
+    english_name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
+
+
+class ReturningSpecies(BaseModel):
+    """Schema for a species heard again after a long absence."""
+
+    species_id: Optional[int] = None
+    internal_id: int = Field(..., description="Database species id, for linking")
+    common_name: str
+    scientific_name: str
+    ebird_code: Optional[str] = Field(None, description="eBird species code")
+    returned_on: date = Field(..., description="First detection of the return")
+    previous_seen: date = Field(..., description="Last detection before the gap")
+    absence_days: int = Field(..., description="Length of the silence, in days")
+    detection_count: int = Field(default=0, description="Detections since returning")
+    english_name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
+
+
+class OverdueSpecies(BaseModel):
+    """Schema for a species expected at this time of year but not yet heard."""
+
+    species_id: Optional[int] = None
+    internal_id: int = Field(..., description="Database species id, for linking")
+    common_name: str
+    scientific_name: str
+    ebird_code: Optional[str] = Field(None, description="eBird species code")
+    last_seen: Optional[date] = Field(None, description="Most recent detection")
+    days_absent: Optional[int] = Field(None, description="Days since last detection")
+    prior_years: List[int] = Field(
+        default_factory=list,
+        description="Years this species was present in the same calendar window",
+    )
+    typical_arrival: Optional[str] = Field(
+        None, description="Earliest historical date in this window (e.g. '14 Apr')"
+    )
     english_name: Optional[str] = None
 
     @model_validator(mode="after")

@@ -107,6 +107,15 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Could not load taxonomy translations / seed schema version: {e}")
 
+    # Build the analytics rollups if they are behind. Runs on a worker thread:
+    # a first build over a multi-million-row database takes minutes, and the
+    # app stays fully usable while it runs.
+    try:
+        from app.services import rollups
+        rollups.ensure_built_on_startup()
+    except Exception as e:
+        logger.warning(f"Could not start rollup build: {e}")
+
     # Start background scheduler for automatic station updates
     try:
         start_scheduler()

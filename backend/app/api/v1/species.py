@@ -18,6 +18,8 @@ from app.schemas.species import (
     SpeciesDiversityTrend,
     SpeciesDiscoveryCurve,
     NewSpeciesThisWeek,
+    ReturningSpecies,
+    OverdueSpecies,
     FamilyStats
 )
 
@@ -201,6 +203,65 @@ async def get_species_this_week(
     results = repo.get_species_this_week(station_ids=station_id_list)
 
     return [NewSpeciesThisWeek(**r) for r in results]
+
+
+@router.get("/returning", response_model=List[ReturningSpecies])
+async def get_returning_species(
+    station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
+    recent_days: int = Query(14, ge=1, le=90, description="How far back counts as 'just returned'"),
+    min_absence_days: int = Query(90, ge=14, le=730, description="Silence required before a detection counts as a return"),
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Get species heard again after a long absence.
+
+    These are the returning migrants and the seasonal singers: species with an
+    earlier detection history, a gap of at least ``min_absence_days``, and a
+    fresh detection inside ``recent_days``. Species with no prior record are
+    excluded - those are lifers and appear under /new/this-week instead.
+    """
+    station_id_list = None
+    if station_ids:
+        station_id_list = [int(id.strip()) for id in station_ids.split(",")]
+
+    repo = SpeciesRepository(db)
+    results = repo.get_returning_species(
+        station_ids=station_id_list,
+        recent_days=recent_days,
+        min_absence_days=min_absence_days,
+    )
+
+    return [ReturningSpecies(**r) for r in results]
+
+
+@router.get("/overdue", response_model=List[OverdueSpecies])
+async def get_overdue_species(
+    station_ids: Optional[str] = Query(None, description="Comma-separated station IDs"),
+    absent_days: int = Query(21, ge=7, le=365, description="Silence before a species counts as missing"),
+    window_days: int = Query(21, ge=7, le=60, description="Half-width of the calendar window compared to previous years"),
+    min_prior_years: int = Query(1, ge=1, le=10, description="Prior years the species must have been present in this window"),
+    db: Session = Depends(get_db_dependency)
+):
+    """
+    Get species that history says should be present now, but are not.
+
+    The counterpart to /returning: a species detected in this same calendar
+    window in previous years, with nothing heard for ``absent_days``. Needs at
+    least one full year of history before it can report anything.
+    """
+    station_id_list = None
+    if station_ids:
+        station_id_list = [int(id.strip()) for id in station_ids.split(",")]
+
+    repo = SpeciesRepository(db)
+    results = repo.get_overdue_species(
+        station_ids=station_id_list,
+        absent_days=absent_days,
+        window_days=window_days,
+        min_prior_years=min_prior_years,
+    )
+
+    return [OverdueSpecies(**r) for r in results]
 
 
 @router.get("/families/stats", response_model=List[FamilyStats])
