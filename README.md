@@ -56,7 +56,7 @@ To update:
 4. Launch the new version. It finds the existing database in the OS user data directory and keeps going — no migration step.
 5. If anything looks wrong, use **Configuration → Restore from backup** to roll back to the snapshot from step 1.
 
-Schema changes since v2.0.0 (the `taxonomy_translation` and `detection_day_verification` tables) are additive — `create_all()` adds them on first launch and existing rows are untouched.
+Schema changes since v2.0.0 (the `taxonomy_translation`, `detection_day_verification`, `detection_rollups`, `solar_rollups` and `rollup_state` tables) are additive — `create_all()` adds them on first launch and existing rows are untouched. The rollup tables populate themselves in the background on first start; on a large database that takes a few minutes, during which the Analytics page shows its progress.
 
 ---
 
@@ -281,13 +281,18 @@ API docs are disabled in production for security.
 - **Species:** `GET /api/v1/species/`
 - **Stations:** `GET /api/v1/stations/`, `POST /api/v1/stations/{id}/sync`
 - **Settings:** `GET /api/v1/settings/`, `POST /api/v1/settings/ebird-taxonomy`
-- **Analytics:** `GET /api/v1/analytics/weather-correlation`
+- **Analytics:** `GET /api/v1/analytics/weather-correlation`, `GET /api/v1/analytics/dawn-chorus`, `GET /api/v1/analytics/dusk-chorus`
+- **Nocturnal:** `GET /api/v1/nocturnal/summary`, `GET /api/v1/nocturnal/dusk-chorus`
+- **Species status:** `GET /api/v1/species/new/this-week`, `GET /api/v1/species/returning`, `GET /api/v1/species/overdue`
+- **Rollups:** `GET /api/v1/analytics/rollups/status`, `POST /api/v1/analytics/rollups/refresh`
 - **Health:** `GET /api/v1/health`
 
 ## Visualizations
 
 ### Daily Detections
-- New species this week gallery
+- New species this week gallery, labelled first-ever record or new-to-station
+- Back after an absence — returning migrants, with a selectable threshold
+- Expected but not yet heard — species due by this point in previous years
 - Daily detection trends by station
 - Summary statistics
 
@@ -316,11 +321,40 @@ API docs are disabled in production for security.
 - UpSet plot (species overlap)
 - Per-station breakdowns
 
+### Nocturnal
+- Bats, owls and nightjars, grouped from eBird order/family taxonomy
+- Sunset- and sunrise-relative activity (the emergence peak)
+- Hour-of-day heatmap, noon to noon, scaled per species
+- Detections per night per group
+- Species table with active nights and first/last records
+
 ### Advanced Analytics
 - Detection patterns by temperature
 - Detection patterns by wind speed
 - Weather correlation analysis
 - Seasonal activity patterns
+- Dawn Chorus and Dusk Chorus (sunrise- and sunset-relative activity)
+- Species detection density ridgeline, with a date axis every three species
+
+## Analytics performance
+
+The Analytics and Nocturnal pages read pre-aggregated summary tables
+(`detection_rollups`, `solar_rollups`) rather than the raw `detections` table.
+A busy station records millions of detections a year, and querying those
+directly is what made the Analytics page time out.
+
+The rollups maintain themselves — the app builds them on first start and folds
+in new rows after every sync, on a background thread. You do not normally need
+to do anything.
+
+- Progress appears as a banner on the Analytics page during a first build.
+- `GET /api/v1/analytics/rollups/status` reports how far behind they are.
+- `POST /api/v1/analytics/rollups/refresh?full=true` rebuilds from scratch.
+  Only needed after restoring a database backup or deleting detections, where
+  the incremental watermark cannot see the change.
+
+Confidence filters snap down to the nearest 0.05 step, which is how a single
+stored row can answer any `min_confidence` without rescanning raw detections.
 
 ## Development
 
