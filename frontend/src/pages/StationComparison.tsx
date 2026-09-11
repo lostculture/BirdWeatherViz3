@@ -129,7 +129,9 @@ const StationComparison: React.FC = () => {
 
       // Merge station stats with coordinates from station list
       const stationCoordsMap = new Map<number, StationResponse>()
-      stationList.forEach((s: StationResponse) => stationCoordsMap.set(s.station_id, s))
+      stationList.forEach((s: StationResponse) => {
+        stationCoordsMap.set(s.station_id, s)
+      })
 
       const stationsWithCoords: StationStatsWithCoords[] = statsData.map((stat) => ({
         ...stat,
@@ -175,7 +177,9 @@ const StationComparison: React.FC = () => {
     // Get all unique species names across all stations
     const allSpeciesNames = new Set<string>()
     for (const speciesList of Object.values(speciesByStation)) {
-      speciesList.forEach((sp) => allSpeciesNames.add(sp.common_name))
+      speciesList.forEach((sp) => {
+        allSpeciesNames.add(sp.common_name)
+      })
     }
 
     // For each species, determine which stations have it

@@ -90,7 +90,7 @@ jobs:
           python3 -m venv backend/.venv
           backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install -r backend/requirements.txt
-          backend/.venv/bin/python -c "import fastapi, sqlalchemy, plotly; print('backend deps ok')"
+          backend/.venv/bin/python -c "import fastapi, sqlalchemy, bcrypt, apscheduler; print('backend deps ok')"
 
       - name: Backend venv + deps (Windows)
         if: runner.os == 'Windows'
@@ -99,7 +99,7 @@ jobs:
           python -m venv backend\.venv
           backend\.venv\Scripts\python.exe -m pip install --upgrade pip
           backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-          backend\.venv\Scripts\python.exe -c "import fastapi, sqlalchemy, plotly; print('backend deps ok')"
+          backend\.venv\Scripts\python.exe -c "import fastapi, sqlalchemy, bcrypt, apscheduler; print('backend deps ok')"
 
       - name: Frontend install
         working-directory: frontend
