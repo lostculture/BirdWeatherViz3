@@ -5,15 +5,14 @@
  * Version: 1.0.0
  */
 
-import type { Data } from 'plotly.js'
+import type { Config, Data, Layout } from 'plotly.js'
 import React from 'react'
 import Plot from 'react-plotly.js'
-import type { PlotParams } from 'react-plotly.js'
 
 interface BarChartProps {
-  data: PlotParams['data']
-  layout?: Partial<PlotParams['layout']>
-  config?: Partial<PlotParams['config']>
+  data: Data[]
+  layout?: Partial<Layout>
+  config?: Partial<Config>
   orientation?: 'v' | 'h'
   className?: string
 }
@@ -35,7 +34,7 @@ const BarChart: React.FC<BarChartProps> = ({
       }) as Data,
   )
 
-  const defaultLayout: Partial<PlotParams['layout']> = {
+  const defaultLayout: Partial<Layout> = {
     autosize: true,
     margin: { l: 50, r: 30, t: 40, b: 50 },
     hovermode: 'closest',
@@ -44,7 +43,7 @@ const BarChart: React.FC<BarChartProps> = ({
     ...layout,
   }
 
-  const defaultConfig: Partial<PlotParams['config']> = {
+  const defaultConfig: Partial<Config> = {
     responsive: true,
     displayModeBar: true,
     displaylogo: false,

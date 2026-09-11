@@ -9,13 +9,24 @@ import type { Data, Layout } from 'plotly.js'
 import React, { useEffect, useState, useMemo } from 'react'
 import Plot from 'react-plotly.js'
 import { analyticsApi, stationsApi } from '../api'
+import ChartPanel from '../components/ChartPanel'
+import { useAsyncData } from '../hooks/useAsyncData'
+import {
+  buildSeasonalityAxes,
+  RIDGE_HALF_HEIGHT,
+  SEASONALITY_YEAR,
+  seasonalityHeight,
+  seasonalityPosition,
+} from './seasonalityLayout'
 import type {
   CoOccurrenceCell,
   ConfidenceByHour,
   ConfidenceScatterPoint,
   DawnChorusPoint,
+  DuskChorusPoint,
   MonthlyChampion,
   PhenologyCell,
+  RollupStatus,
   SpeciesHourBubble,
   TemporalDistribution,
   WeatherImpact,
@@ -35,48 +46,70 @@ const HEATMAP_COLORSCALE: [number, string][] = [
   [1, '#1E1B4B'], // 100% - darkest
 ]
 
-// Gaussian KDE computation — pure, hoisted so useMemo dep list stays stable
-const computeKDE = (data: number[], bandwidth: number, gridPoints: number[]): number[] => {
+// Build the hover text listing the species behind one chorus bar. Plotly
+// renders <br> inside a hovertemplate, so the list is a preformatted string
+// passed through customdata.
+const chorusHoverText = (
+  species: Array<{ common_name: string; detection_count: number }>,
+): string => {
+  if (species.length === 0) return ''
+  const width = Math.max(...species.map((sp) => sp.detection_count.toLocaleString().length))
+  const lines = species.map(
+    (sp) => `${sp.detection_count.toLocaleString().padStart(width)} · ${sp.common_name}`,
+  )
+  return `<br><br><b>Top species</b><br>${lines.join('<br>')}`
+}
+
+// Weighted Gaussian KDE — pure, hoisted so useMemo dep lists stay stable.
+//
+// Each observation carries a weight (its detection count) rather than being
+// repeated that many times. Mathematically identical to the expanded form, but
+// the cost is one term per distinct date instead of one per detection: for the
+// seasonality plot that is ~24k terms instead of ~2.4M, which is the
+// difference between a visible freeze and an instant render. It also drops the
+// per-point cap the expanded version needed, which had been flattening the
+// most abundant species.
+const computeWeightedKDE = (
+  positions: number[],
+  weights: number[],
+  bandwidth: number,
+  gridPoints: number[],
+): number[] => {
+  let totalWeight = 0
+  for (const w of weights) totalWeight += w
+  if (totalWeight === 0) return gridPoints.map(() => 0)
+
+  const scale = totalWeight * bandwidth * Math.sqrt(2 * Math.PI)
+
   // Gaussian kernel: K(u) = (1/sqrt(2*pi)) * exp(-0.5 * u^2)
   return gridPoints.map((x) => {
     let sum = 0
-    for (const xi of data) {
-      const u = (x - xi) / bandwidth
-      sum += Math.exp(-0.5 * u * u)
+    for (let i = 0; i < positions.length; i++) {
+      const u = (x - positions[i]) / bandwidth
+      sum += weights[i] * Math.exp(-0.5 * u * u)
     }
-    return sum / (data.length * bandwidth * Math.sqrt(2 * Math.PI))
+    return sum / scale
   })
 }
 
 const AdvancedAnalytics: React.FC = () => {
-  // Data states
-  const [bubbleData, setBubbleData] = useState<SpeciesHourBubble[]>([])
-  const [phenologyData, setPhenologyData] = useState<PhenologyCell[]>([])
-  const [scatterData, setScatterData] = useState<ConfidenceScatterPoint[]>([])
-  const [confidenceHourData, setConfidenceHourData] = useState<ConfidenceByHour[]>([])
-  const [temporalData, setTemporalData] = useState<TemporalDistribution[]>([])
-  const [dawnChorusData, setDawnChorusData] = useState<DawnChorusPoint[]>([])
-  const [weatherData, setWeatherData] = useState<WeatherImpact[]>([])
-  const [precipData, setPrecipData] = useState<WeatherImpact[]>([])
-  const [coOccurrenceData, setCoOccurrenceData] = useState<CoOccurrenceCell[]>([])
-  const [monthlyChampionsData, setMonthlyChampionsData] = useState<MonthlyChampion[]>([])
   const [stations, setStations] = useState<StationResponse[]>([])
 
   // UI states
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [selectedStations, setSelectedStations] = useState<number[]>([])
   const [bubbleLimit, setBubbleLimit] = useState(30)
   const [phenologyYear, setPhenologyYear] = useState(0) // 0 = Rolling 12 months (default)
+  const [rollups, setRollups] = useState<RollupStatus | null>(null)
+  // Pooling stations ('date') saturates at 1.00 for every common species, and
+  // hour-grain spreads so low that the matrix reads as uniformly pale. Same
+  // station, same day keeps real contrast without either failure.
+  const [coOccurrenceGrain, setCoOccurrenceGrain] = useState<'hour' | 'day' | 'date'>('day')
+
+  const stationIds = selectedStations.length > 0 ? selectedStations.join(',') : undefined
 
   useEffect(() => {
     loadStations()
   }, [])
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — loadAllData reads the filter state from closure
-  useEffect(() => {
-    loadAllData()
-  }, [selectedStations, bubbleLimit, phenologyYear])
 
   const loadStations = async () => {
     try {
@@ -87,89 +120,156 @@ const AdvancedAnalytics: React.FC = () => {
     }
   }
 
-  const loadAllData = async () => {
-    try {
-      setLoading(true)
-      setError(null)
+  // Poll the rollup builder while it is catching up, so a first build on a
+  // large database explains itself instead of showing empty charts.
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
 
-      const stationIds = selectedStations.length > 0 ? selectedStations.join(',') : undefined
-
-      const [
-        bubble,
-        phenology,
-        scatter,
-        confHour,
-        temporal,
-        dawnChorus,
-        weather,
-        precip,
-        coOccurrence,
-        champions,
-      ] = await Promise.all([
-        analyticsApi.getSpeciesHourBubble({
-          limit: bubbleLimit >= 9999 ? 500 : bubbleLimit, // Cap at 500 for "All"
-          months: 3,
-          station_ids: stationIds,
-        }),
-        analyticsApi.getPhenology({
-          year: phenologyYear,
-          station_ids: stationIds,
-          limit: 40,
-        }),
-        analyticsApi.getConfidenceScatter({
-          station_ids: stationIds,
-          min_detections: 10,
-        }),
-        analyticsApi.getConfidenceByHour({
-          station_ids: stationIds,
-          months: 6,
-        }),
-        analyticsApi.getTemporalDistribution({
-          station_ids: stationIds,
-          months: 6,
-          limit: 200, // All species for density plot
-        }),
-        analyticsApi.getDawnChorus({
-          station_ids: stationIds,
-          months: 6,
-        }),
-        analyticsApi.getWeatherImpact({
-          station_ids: stationIds,
-          months: 6,
-          analysis_type: 'temperature',
-        }),
-        analyticsApi.getWeatherImpact({
-          station_ids: stationIds,
-          months: 6,
-          analysis_type: 'precipitation',
-        }),
-        analyticsApi.getCoOccurrence({
-          station_ids: stationIds,
-          months: 6,
-          limit: 15,
-        }),
-        analyticsApi.getMonthlyChampions({
-          station_ids: stationIds,
-          year: phenologyYear,
-        }),
-      ])
-
-      setBubbleData(bubble)
-      setPhenologyData(phenology)
-      setScatterData(scatter)
-      setConfidenceHourData(confHour)
-      setTemporalData(temporal)
-      setDawnChorusData(dawnChorus)
-      setWeatherData(weather)
-      setPrecipData(precip)
-      setCoOccurrenceData(coOccurrence)
-      setMonthlyChampionsData(champions)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load analytics data')
-    } finally {
-      setLoading(false)
+    const poll = async () => {
+      try {
+        const status = await analyticsApi.getRollupStatus()
+        if (cancelled) return
+        setRollups(status)
+        if (status.building || status.detections_pending > 0) {
+          timer = setTimeout(poll, 5000)
+        }
+      } catch (err) {
+        // Older backends have no rollup endpoint; the charts still work.
+        console.debug('Rollup status unavailable:', err)
+      }
     }
-  }
+
+    poll()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
+
+  // Each chart loads on its own request. Previously all ten went out in a
+  // single Promise.all, so one slow query rejected the lot and the page showed
+  // nothing but "Error: timeout of 30000ms exceeded".
+  const bubble = useAsyncData<SpeciesHourBubble[]>(
+    () =>
+      analyticsApi.getSpeciesHourBubble({
+        limit: bubbleLimit >= 9999 ? 500 : bubbleLimit, // Cap at 500 for "All"
+        months: 3,
+        station_ids: stationIds,
+      }),
+    [stationIds, bubbleLimit],
+    [],
+  )
+
+  const phenology = useAsyncData<PhenologyCell[]>(
+    () =>
+      analyticsApi.getPhenology({
+        year: phenologyYear,
+        station_ids: stationIds,
+        limit: 40,
+      }),
+    [stationIds, phenologyYear],
+    [],
+  )
+
+  const scatter = useAsyncData<ConfidenceScatterPoint[]>(
+    () => analyticsApi.getConfidenceScatter({ station_ids: stationIds, min_detections: 10 }),
+    [stationIds],
+    [],
+  )
+
+  const confidenceHour = useAsyncData<ConfidenceByHour[]>(
+    () => analyticsApi.getConfidenceByHour({ station_ids: stationIds, months: 6 }),
+    [stationIds],
+    [],
+  )
+
+  const temporal = useAsyncData<TemporalDistribution[]>(
+    () =>
+      analyticsApi.getTemporalDistribution({
+        station_ids: stationIds,
+        months: 6,
+        limit: 200, // All species for density plot
+      }),
+    [stationIds],
+    [],
+  )
+
+  const seasonality = useAsyncData<TemporalDistribution[]>(
+    () =>
+      analyticsApi.getTemporalDistribution({
+        station_ids: stationIds,
+        limit: 200,
+        mode: 'calendar',
+      }),
+    [stationIds],
+    [],
+  )
+
+  const dawnChorus = useAsyncData<DawnChorusPoint[]>(
+    () => analyticsApi.getDawnChorus({ station_ids: stationIds, months: 6 }),
+    [stationIds],
+    [],
+  )
+
+  const duskChorus = useAsyncData<DuskChorusPoint[]>(
+    () => analyticsApi.getDuskChorus({ station_ids: stationIds, months: 6 }),
+    [stationIds],
+    [],
+  )
+
+  const weather = useAsyncData<WeatherImpact[]>(
+    () =>
+      analyticsApi.getWeatherImpact({
+        station_ids: stationIds,
+        months: 6,
+        analysis_type: 'temperature',
+      }),
+    [stationIds],
+    [],
+  )
+
+  const precip = useAsyncData<WeatherImpact[]>(
+    () =>
+      analyticsApi.getWeatherImpact({
+        station_ids: stationIds,
+        months: 6,
+        analysis_type: 'precipitation',
+      }),
+    [stationIds],
+    [],
+  )
+
+  const coOccurrence = useAsyncData<CoOccurrenceCell[]>(
+    () =>
+      analyticsApi.getCoOccurrence({
+        station_ids: stationIds,
+        months: 6,
+        limit: 15,
+        granularity: coOccurrenceGrain,
+      }),
+    [stationIds, coOccurrenceGrain],
+    [],
+  )
+
+  const champions = useAsyncData<MonthlyChampion[]>(
+    () => analyticsApi.getMonthlyChampions({ station_ids: stationIds, year: phenologyYear }),
+    [stationIds, phenologyYear],
+    [],
+  )
+
+  const bubbleData = bubble.data
+  const phenologyData = phenology.data
+  const scatterData = scatter.data
+  const confidenceHourData = confidenceHour.data
+  const temporalData = temporal.data
+  const seasonalityData = seasonality.data
+  const dawnChorusData = dawnChorus.data
+  const duskChorusData = duskChorus.data
+  const weatherData = weather.data
+  const precipData = precip.data
+  const coOccurrenceData = coOccurrence.data
+  const monthlyChampionsData = champions.data
 
   // Prepare heatmap chart data (converted from bubble)
   const bubbleChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
@@ -497,6 +597,7 @@ const AdvancedAnalytics: React.FC = () => {
           type: 'bar',
           x: dawnChorusData.map((d) => d.minutes_from_sunrise),
           y: dawnChorusData.map((d) => d.detection_count),
+          customdata: dawnChorusData.map((d) => chorusHoverText(d.top_species ?? [])),
           marker: {
             color: dawnChorusData.map((d) => d.species_count),
             colorscale: 'YlOrRd',
@@ -504,11 +605,12 @@ const AdvancedAnalytics: React.FC = () => {
             colorbar: { title: { text: 'Species' } },
           },
           hovertemplate:
-            '%{x} min from sunrise<br>%{y} detections<br>%{marker.color} species<extra></extra>',
+            '%{x} min from sunrise<br>%{y} detections<br>%{marker.color} species%{customdata}<extra></extra>',
         },
       ],
       layout: {
         title: { text: 'Dawn Chorus Analysis', font: { size: 16 } },
+        hoverlabel: { align: 'left', namelength: -1 },
         xaxis: {
           title: { text: 'Minutes from Sunrise' },
           zeroline: true,
@@ -544,6 +646,70 @@ const AdvancedAnalytics: React.FC = () => {
       },
     }
   }, [dawnChorusData])
+
+  // Dusk chorus — the sunset counterpart to the dawn chorus. Bat emergence and
+  // the start of owl activity both cluster in the half hour after sunset, so
+  // this is the chart to read for a station running a bat detector.
+  const duskChorusChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
+    if (duskChorusData.length === 0) {
+      return { data: [], layout: {} }
+    }
+
+    return {
+      data: [
+        {
+          type: 'bar',
+          x: duskChorusData.map((d) => d.minutes_from_sunset),
+          y: duskChorusData.map((d) => d.detection_count),
+          customdata: duskChorusData.map((d) => chorusHoverText(d.top_species ?? [])),
+          marker: {
+            color: duskChorusData.map((d) => d.species_count),
+            colorscale: 'Purples',
+            showscale: true,
+            colorbar: { title: { text: 'Species' } },
+          },
+          hovertemplate:
+            '%{x} min from sunset<br>%{y} detections<br>%{marker.color} species%{customdata}<extra></extra>',
+        },
+      ],
+      layout: {
+        title: { text: 'Dusk Chorus Analysis', font: { size: 16 } },
+        hoverlabel: { align: 'left', namelength: -1 },
+        xaxis: {
+          title: { text: 'Minutes from Sunset' },
+          zeroline: true,
+          zerolinecolor: '#7C3AED',
+          zerolinewidth: 2,
+        },
+        yaxis: {
+          title: { text: 'Detection Count' },
+        },
+        height: 400,
+        margin: { l: 60, r: 80, t: 50, b: 50 },
+        shapes: [
+          {
+            type: 'line',
+            x0: 0,
+            x1: 0,
+            y0: 0,
+            y1: 1,
+            yref: 'paper',
+            line: { color: '#7C3AED', width: 2, dash: 'dash' },
+          },
+        ],
+        annotations: [
+          {
+            x: 0,
+            y: 1.05,
+            yref: 'paper',
+            text: 'Sunset',
+            showarrow: false,
+            font: { color: '#7C3AED', size: 12 },
+          },
+        ],
+      },
+    }
+  }, [duskChorusData])
 
   // Prepare weather impact chart data
   const weatherChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
@@ -696,15 +862,20 @@ const AdvancedAnalytics: React.FC = () => {
       },
     }
   }, [coOccurrenceData])
-  // Prepare mirrored probability density plot for seasonality
+  // Ridgeline ("joyplot") of detection density per species.
+  //
+  // Species are laid out in rows of SEASONALITY_ROW_SIZE stacked subplots, each
+  // with its own x-axis, so scrolling a tall chart always keeps a date axis in
+  // view. A single tall subplot put the only axis at the very bottom, hundreds
+  // of pixels below whatever you were looking at.
   const seasonalityChartData = useMemo((): { data: Data[]; layout: Partial<Layout> } => {
-    if (temporalData.length === 0) {
+    if (seasonalityData.length === 0) {
       return { data: [], layout: {} }
     }
 
     // Group temporal data by species
     const speciesGroups = new Map<string, TemporalDistribution[]>()
-    temporalData.forEach((d) => {
+    seasonalityData.forEach((d) => {
       if (!speciesGroups.has(d.common_name)) {
         speciesGroups.set(d.common_name, [])
       }
@@ -724,10 +895,11 @@ const AdvancedAnalytics: React.FC = () => {
       return { data: [], layout: {} }
     }
 
-    // Determine date range
-    const allDates = temporalData.map((d) => new Date(d.date).getTime())
-    const minDate = Math.min(...allDates)
-    const maxDate = Math.max(...allDates)
+    // The backend folds every year onto one calendar year, so pin the axis to
+    // the whole year rather than to whatever range happens to hold detections.
+    // A June species should read as a June species, not fill the plot.
+    const minDate = Date.UTC(SEASONALITY_YEAR, 0, 1)
+    const maxDate = Date.UTC(SEASONALITY_YEAR, 11, 31)
     const dateRange = maxDate - minDate
     const bandwidth = dateRange / 30 // Bandwidth: ~1 month
 
@@ -759,27 +931,37 @@ const AdvancedAnalytics: React.FC = () => {
     ]
 
     const traces: Data[] = []
-    const verticalSpacing = 1 // Spacing between species
+
+    const layout: Partial<Layout> & Record<string, unknown> = {
+      height: seasonalityHeight(speciesOrdered.length),
+      margin: { l: 150, r: 20, t: 40, b: 20 },
+      showlegend: false,
+      hovermode: 'closest',
+      title: { text: 'Species Detection Density (Mirrored)', font: { size: 16 } },
+    }
 
     speciesOrdered.forEach((species, idx) => {
-      // Expand dates by detection count (each detection contributes to the density)
-      const expandedDates: number[] = []
+      const { positionInRow, axisSuffix } = seasonalityPosition(idx)
+
+      // One weighted observation per calendar day, rather than one per
+      // detection — see computeWeightedKDE.
+      const positions: number[] = []
+      const weights: number[] = []
       species.data.forEach((d) => {
-        const dateMs = new Date(d.date).getTime()
-        for (let i = 0; i < Math.min(d.detection_count, 100); i++) {
-          expandedDates.push(dateMs)
+        if (d.detection_count > 0) {
+          positions.push(new Date(d.date).getTime())
+          weights.push(d.detection_count)
         }
       })
 
-      if (expandedDates.length === 0) return
+      if (positions.length === 0) return
 
-      // Compute KDE
-      const density = computeKDE(expandedDates, bandwidth, gridDates)
+      const density = computeWeightedKDE(positions, weights, bandwidth, gridDates)
       const maxDensity = Math.max(...density)
+      if (!(maxDensity > 0)) return
 
-      // Normalize density to fit within spacing (max height = 0.4 of spacing)
-      const normalizedDensity = density.map((d) => (d / maxDensity) * 0.4)
-      const yBaseline = idx * verticalSpacing
+      const normalizedDensity = density.map((d) => (d / maxDensity) * RIDGE_HALF_HEIGHT)
+      const yBaseline = positionInRow
       const color = colors[idx % colors.length]
 
       // Lower trace (mirrored - negative) - must come first as base for fill
@@ -791,8 +973,10 @@ const AdvancedAnalytics: React.FC = () => {
         line: { color, width: 1 },
         name: species.name,
         showlegend: false,
+        xaxis: `x${axisSuffix}`,
+        yaxis: `y${axisSuffix}`,
         hovertemplate: `${species.name}<br>%{x}<extra></extra>`,
-      })
+      } as Data)
 
       // Upper trace (positive) - fills down to previous trace (lower)
       traces.push({
@@ -804,34 +988,24 @@ const AdvancedAnalytics: React.FC = () => {
         fill: 'tonexty',
         fillcolor: `${color}40`,
         showlegend: false,
+        xaxis: `x${axisSuffix}`,
+        yaxis: `y${axisSuffix}`,
         hoverinfo: 'skip',
-      })
+      } as Data)
     })
 
-    return {
-      data: traces,
-      layout: {
-        title: { text: 'Species Detection Density (Mirrored)', font: { size: 16 } },
-        xaxis: {
-          title: { text: 'Date' },
-          type: 'date',
-        },
-        yaxis: {
-          tickmode: 'array',
-          tickvals: speciesOrdered.map((_, idx) => idx * verticalSpacing),
-          ticktext: speciesOrdered.map((s) => s.name),
-          tickfont: { size: 10 },
-          showgrid: false,
-          zeroline: false,
-          autorange: 'reversed', // Most detected at top
-        },
-        height: Math.max(400, speciesOrdered.length * 60 + 100),
-        margin: { l: 150, r: 20, t: 50, b: 50 },
-        showlegend: false,
-        hovermode: 'closest',
-      },
-    }
-  }, [temporalData])
+    const axes = buildSeasonalityAxes(
+      speciesOrdered.map((sp) => sp.name),
+      [gridDatesStr[0], gridDatesStr[gridDatesStr.length - 1]],
+    )
+    axes.forEach(({ suffix, xaxis, yaxis }) => {
+      layout[`xaxis${suffix}`] = xaxis
+      layout[`yaxis${suffix}`] = yaxis
+    })
+
+    return { data: traces, layout: layout as Partial<Layout> }
+  }, [seasonalityData])
+
 
   const handleStationToggle = (stationId: number) => {
     setSelectedStations((prev) =>
@@ -839,21 +1013,22 @@ const AdvancedAnalytics: React.FC = () => {
     )
   }
 
-  if (loading && bubbleData.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-muted-foreground">Loading analytics...</div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-red-600">Error: {error}</div>
-      </div>
-    )
-  }
+  // Every panel owns its loading and error state, so there is no page-wide
+  // gate any more: one slow or failing chart no longer blanks the page.
+  const anyLoading = [
+    bubble,
+    phenology,
+    scatter,
+    confidenceHour,
+    temporal,
+    dawnChorus,
+    duskChorus,
+    weather,
+    precip,
+    coOccurrence,
+    champions,
+    seasonality,
+  ].some((panel) => panel.loading)
 
   return (
     <div className="space-y-6">
@@ -864,6 +1039,25 @@ const AdvancedAnalytics: React.FC = () => {
           Deep analysis of detection patterns, confidence, and temporal trends
         </p>
       </div>
+
+      {/* Rollup build progress. The charts read pre-aggregated summaries; while
+          a first build catches up they show a growing subset rather than
+          nothing, so say so instead of leaving the user guessing. */}
+      {rollups && (rollups.building || rollups.detections_pending > 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-900 flex items-center gap-3">
+          <span className="inline-block w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+          <span>
+            Building analytics summaries —{' '}
+            <strong>{rollups.detections_pending.toLocaleString()}</strong> detections still to
+            process. Charts fill in as this completes.
+          </span>
+        </div>
+      )}
+      {rollups?.detection.status === 'error' && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-900">
+          Analytics summaries failed to build: {rollups.detection.message}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-4">
@@ -940,43 +1134,37 @@ const AdvancedAnalytics: React.FC = () => {
         <h2 className="text-xl font-semibold">Species Activity Patterns</h2>
 
         {/* Bubble Chart */}
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm text-muted-foreground mb-2">
-            Bubble size and color indicate detection count. Shows when each species is most active.
-          </p>
-          {bubbleData.length > 0 ? (
-            <Plot
-              data={bubbleChartData.data}
-              layout={bubbleChartData.layout}
-              config={{ responsive: true, displayModeBar: false }}
-              style={{ width: '100%' }}
-            />
-          ) : (
-            <div className="h-64 flex items-center justify-center text-muted-foreground">
-              No data available
-            </div>
-          )}
-        </div>
+        <ChartPanel
+          description="Bubble size and color indicate detection count. Shows when each species is most active."
+          loading={bubble.loading}
+          error={bubble.error}
+          isEmpty={bubbleData.length === 0}
+          onRetry={bubble.reload}
+        >
+          <Plot
+            data={bubbleChartData.data}
+            layout={bubbleChartData.layout}
+            config={{ responsive: true, displayModeBar: false }}
+            style={{ width: '100%' }}
+          />
+        </ChartPanel>
 
         {/* Phenology Heatmap */}
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm text-muted-foreground mb-2">
-            Weekly detection intensity throughout the year. Reveals seasonal patterns and migration
-            timing.
-          </p>
-          {phenologyData.length > 0 ? (
-            <Plot
-              data={phenologyChartData.data}
-              layout={phenologyChartData.layout}
-              config={{ responsive: true, displayModeBar: false }}
-              style={{ width: '100%' }}
-            />
-          ) : (
-            <div className="h-64 flex items-center justify-center text-muted-foreground">
-              No data available for {phenologyYear}
-            </div>
-          )}
-        </div>
+        <ChartPanel
+          description="Weekly detection intensity throughout the year. Reveals seasonal patterns and migration timing."
+          loading={phenology.loading}
+          error={phenology.error}
+          isEmpty={phenologyData.length === 0}
+          emptyMessage={`No data available for ${phenologyYear || 'the last 12 months'}`}
+          onRetry={phenology.reload}
+        >
+          <Plot
+            data={phenologyChartData.data}
+            layout={phenologyChartData.layout}
+            config={{ responsive: true, displayModeBar: false }}
+            style={{ width: '100%' }}
+          />
+        </ChartPanel>
       </div>
 
       {/* Data Quality Section */}
@@ -985,42 +1173,36 @@ const AdvancedAnalytics: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Confidence Scatter */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-muted-foreground mb-2">
-              Species with high detections and high confidence are the most reliably identified.
-            </p>
-            {scatterData.length > 0 ? (
-              <Plot
-                data={scatterChartData.data}
-                layout={scatterChartData.layout}
-                config={{ responsive: true, displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
-            ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                No data available
-              </div>
-            )}
-          </div>
+          <ChartPanel
+            description="Species with high detections and high confidence are the most reliably identified."
+            loading={scatter.loading}
+            error={scatter.error}
+            isEmpty={scatterData.length === 0}
+            onRetry={scatter.reload}
+          >
+            <Plot
+              data={scatterChartData.data}
+              layout={scatterChartData.layout}
+              config={{ responsive: true, displayModeBar: false }}
+              style={{ width: '100%' }}
+            />
+          </ChartPanel>
 
           {/* Confidence by Hour */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-muted-foreground mb-2">
-              Shows how detection confidence varies throughout the day.
-            </p>
-            {confidenceHourData.length > 0 ? (
-              <Plot
-                data={confidenceHourChartData.data}
-                layout={confidenceHourChartData.layout}
-                config={{ responsive: true, displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
-            ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                No data available
-              </div>
-            )}
-          </div>
+          <ChartPanel
+            description="Shows how detection confidence varies throughout the day."
+            loading={confidenceHour.loading}
+            error={confidenceHour.error}
+            isEmpty={confidenceHourData.length === 0}
+            onRetry={confidenceHour.reload}
+          >
+            <Plot
+              data={confidenceHourChartData.data}
+              layout={confidenceHourChartData.layout}
+              config={{ responsive: true, displayModeBar: false }}
+              style={{ width: '100%' }}
+            />
+          </ChartPanel>
         </div>
       </div>
 
@@ -1028,88 +1210,97 @@ const AdvancedAnalytics: React.FC = () => {
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Temporal Distribution</h2>
 
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm text-muted-foreground mb-2">
-            Daily detection patterns for top species over the past 6 months.
-          </p>
-          {temporalData.length > 0 ? (
-            <Plot
-              data={temporalChartData.data}
-              layout={temporalChartData.layout}
-              config={{ responsive: true, displayModeBar: false }}
-              style={{ width: '100%' }}
-            />
-          ) : (
-            <div className="h-64 flex items-center justify-center text-muted-foreground">
-              No data available
-            </div>
-          )}
-        </div>
+        <ChartPanel
+          description="Daily detection patterns for top species over the past 6 months."
+          loading={temporal.loading}
+          error={temporal.error}
+          isEmpty={temporalData.length === 0}
+          onRetry={temporal.reload}
+        >
+          <Plot
+            data={temporalChartData.data}
+            layout={temporalChartData.layout}
+            config={{ responsive: true, displayModeBar: false }}
+            style={{ width: '100%' }}
+          />
+        </ChartPanel>
       </div>
 
       {/* Dawn Chorus & Weather Section */}
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Environmental Factors</h2>
 
-        {/* Dawn Chorus - Full Width */}
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm text-muted-foreground mb-2">
-            Detection activity relative to sunrise. The dawn chorus phenomenon peaks just before and
-            after sunrise.
-          </p>
-          {dawnChorusData.length > 0 ? (
+        {/* Dawn and dusk chorus, side by side so the two ends of the day can
+            be compared directly. */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <ChartPanel
+            description="Detection activity relative to sunrise. The dawn chorus peaks just before and after sunrise."
+            loading={dawnChorus.loading}
+            error={dawnChorus.error}
+            isEmpty={dawnChorusData.length === 0}
+            emptyMessage="No sunrise data available — sync weather to populate sunrise times"
+            onRetry={dawnChorus.reload}
+          >
             <Plot
               data={dawnChorusChartData.data}
               layout={dawnChorusChartData.layout}
               config={{ responsive: true, displayModeBar: false }}
               style={{ width: '100%' }}
             />
-          ) : (
-            <div className="h-64 flex items-center justify-center text-muted-foreground">
-              No sunrise data available
-            </div>
-          )}
+          </ChartPanel>
+
+          <ChartPanel
+            description="Detection activity relative to sunset. Bats emerging and owls starting up both show in the half hour after sunset."
+            loading={duskChorus.loading}
+            error={duskChorus.error}
+            isEmpty={duskChorusData.length === 0}
+            emptyMessage="No sunset data available — sync weather to populate sunset times"
+            onRetry={duskChorus.reload}
+          >
+            <Plot
+              data={duskChorusChartData.data}
+              layout={duskChorusChartData.layout}
+              config={{ responsive: true, displayModeBar: false }}
+              style={{ width: '100%' }}
+            />
+          </ChartPanel>
         </div>
 
         {/* Weather Charts Side by Side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Temperature Impact */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-muted-foreground mb-2">
-              Average daily detections by temperature range.
-            </p>
-            {weatherData.length > 0 ? (
-              <Plot
-                data={weatherChartData.data}
-                layout={weatherChartData.layout}
-                config={{ responsive: true, displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
-            ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                No weather data available
-              </div>
-            )}
-          </div>
+          <ChartPanel
+            description="Average daily detections by temperature range."
+            loading={weather.loading}
+            error={weather.error}
+            isEmpty={weatherData.length === 0}
+            emptyMessage="No weather data available"
+            onRetry={weather.reload}
+          >
+            <Plot
+              data={weatherChartData.data}
+              layout={weatherChartData.layout}
+              config={{ responsive: true, displayModeBar: false }}
+              style={{ width: '100%' }}
+            />
+          </ChartPanel>
 
           {/* Precipitation Impact */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-muted-foreground mb-2">
-              Average daily detections by precipitation level.
-            </p>
-            {precipData.length > 0 ? (
-              <Plot
-                data={precipChartData.data}
-                layout={precipChartData.layout}
-                config={{ responsive: true, displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
-            ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                No precipitation data available
-              </div>
-            )}
-          </div>
+          <ChartPanel
+            description="Average daily detections by precipitation level."
+            loading={precip.loading}
+            error={precip.error}
+            isEmpty={precipData.length === 0}
+            emptyMessage="No precipitation data available"
+            onRetry={precip.reload}
+          >
+            <Plot
+              data={precipChartData.data}
+              layout={precipChartData.layout}
+              config={{ responsive: true, displayModeBar: false }}
+              style={{ width: '100%' }}
+            />
+          </ChartPanel>
         </div>
       </div>
 
@@ -1117,54 +1308,61 @@ const AdvancedAnalytics: React.FC = () => {
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Species Relationships</h2>
 
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm text-muted-foreground mb-2">
-            Species co-occurrence based on Jaccard similarity index. Higher values (darker) indicate
-            species frequently detected on the same days.
-          </p>
-          {coOccurrenceData.length > 0 ? (
-            <Plot
-              data={coOccurrenceChartData.data}
-              layout={coOccurrenceChartData.layout}
-              config={{ responsive: true, displayModeBar: false }}
-              style={{ width: '100%' }}
-            />
-          ) : (
-            <div className="h-64 flex items-center justify-center text-muted-foreground">
-              No data available
-            </div>
-          )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <label htmlFor="cooccurrence-grain" className="text-sm font-medium text-gray-700">
+            Count species as together when detected in the same
+          </label>
+          <select
+            id="cooccurrence-grain"
+            value={coOccurrenceGrain}
+            onChange={(e) => setCoOccurrenceGrain(e.target.value as 'hour' | 'day' | 'date')}
+            className="px-3 py-1 border rounded text-sm"
+          >
+            <option value="day">day, at the same station</option>
+            <option value="hour">hour, at the same station</option>
+            <option value="date">day, anywhere (saturates on multi-station data)</option>
+          </select>
         </div>
+
+        <ChartPanel
+          description="Species co-occurrence based on the Jaccard similarity index; darker means more often detected together. Counted per station, so two species have to be heard at the same place to count — pooling every station together makes each common species look identical to all the others."
+          loading={coOccurrence.loading}
+          error={coOccurrence.error}
+          isEmpty={coOccurrenceData.length === 0}
+          onRetry={coOccurrence.reload}
+        >
+          <Plot
+            data={coOccurrenceChartData.data}
+            layout={coOccurrenceChartData.layout}
+            config={{ responsive: true, displayModeBar: false }}
+            style={{ width: '100%' }}
+          />
+        </ChartPanel>
       </div>
 
       {/* Seasonality & Champions Section */}
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Seasonality & Champions</h2>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          {/* Species Detection Density */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-muted-foreground mb-2">
-              Mirrored probability density plot showing detection patterns over time. Species
-              ordered by total detections (highest at top). Wider areas indicate more frequent
-              detections.
-            </p>
-            {temporalData.length > 0 ? (
-              <div className="overflow-y-auto max-h-[600px]">
-                <Plot
-                  data={seasonalityChartData.data}
-                  layout={seasonalityChartData.layout}
-                  config={{ responsive: true, displayModeBar: false }}
-                  style={{ width: '100%' }}
-                />
-              </div>
-            ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                No data available
-              </div>
-            )}
+        {/* Species Detection Density */}
+        <ChartPanel
+          description="Every year of history folded onto one calendar year, so the shape reads as seasonality rather than as recent history. Species ordered by total detections (highest at top); wider areas mean more frequent detections. A month axis repeats every three species so one stays in view while scrolling."
+          loading={seasonality.loading}
+          error={seasonality.error}
+          isEmpty={seasonalityData.length === 0}
+          onRetry={seasonality.reload}
+        >
+          <div className="overflow-y-auto max-h-[600px]">
+            <Plot
+              data={seasonalityChartData.data}
+              layout={seasonalityChartData.layout}
+              config={{ responsive: true, displayModeBar: false }}
+              style={{ width: '100%' }}
+            />
           </div>
+        </ChartPanel>
 
+        <div className="grid grid-cols-1 gap-4">
           {/* Monthly Champions Table */}
           <div className="bg-white rounded-lg shadow p-4">
             <h3 className="text-lg font-semibold mb-2">
@@ -1215,7 +1413,7 @@ const AdvancedAnalytics: React.FC = () => {
               </div>
             ) : (
               <div className="h-32 flex items-center justify-center text-muted-foreground">
-                No data available for {phenologyYear}
+                No data available for {phenologyYear || 'the last 12 months'}
               </div>
             )}
           </div>
@@ -1223,9 +1421,10 @@ const AdvancedAnalytics: React.FC = () => {
       </div>
 
       {/* Loading indicator for refreshes */}
-      {loading && bubbleData.length > 0 && (
-        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg px-4 py-2 text-sm">
-          Refreshing data...
+      {anyLoading && (
+        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg px-4 py-2 text-sm flex items-center gap-2">
+          <span className="inline-block w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+          Refreshing data…
         </div>
       )}
     </div>

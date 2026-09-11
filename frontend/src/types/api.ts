@@ -70,6 +70,36 @@ export interface NewSpeciesThisWeek {
   ebird_code?: string
   first_detection_date: string
   detection_count: number
+  /** Stations this species is new to. */
+  stations: string[]
+  /** False when the species is only new to this station, not a first-ever record. */
+  is_first_ever: boolean
+}
+
+export interface ReturningSpecies {
+  species_id?: number | null
+  internal_id: number
+  common_name: string
+  english_name?: string | null
+  scientific_name: string
+  ebird_code?: string
+  returned_on: string
+  previous_seen: string
+  absence_days: number
+  detection_count: number
+}
+
+export interface OverdueSpecies {
+  species_id?: number | null
+  internal_id: number
+  common_name: string
+  english_name?: string | null
+  scientific_name: string
+  ebird_code?: string
+  last_seen: string | null
+  days_absent: number | null
+  prior_years: number[]
+  typical_arrival: string | null
 }
 
 // Bird Information Links

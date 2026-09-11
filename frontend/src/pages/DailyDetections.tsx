@@ -8,6 +8,7 @@
 import type { Data, Layout } from 'plotly.js'
 import React, { useEffect, useState, useMemo } from 'react'
 import Plot from 'react-plotly.js'
+import { Link } from 'react-router-dom'
 import {
   DEFAULT_BIRD_SOURCES,
   detectionsApi,
@@ -19,7 +20,13 @@ import {
 import type { WeatherRecord } from '../api/weather'
 import { LineChart } from '../components/charts'
 import { useFilters } from '../context/FilterContext'
-import type { DailyDetectionCount, DatabaseStats, NewSpeciesThisWeek } from '../types/api'
+import type {
+  DailyDetectionCount,
+  DatabaseStats,
+  NewSpeciesThisWeek,
+  OverdueSpecies,
+  ReturningSpecies,
+} from '../types/api'
 
 // Threshold for switching to small multiples
 const SPARKLINE_THRESHOLD = 3
@@ -79,6 +86,19 @@ const SpeciesCard: React.FC<{
       <div className="p-4">
         <div className="font-semibold text-lg">{species.common_name}</div>
         <div className="text-sm text-muted-foreground italic">{species.scientific_name}</div>
+        {/* A species new to one station but long-known at another is still
+            worth reporting — see issue #25 — so label which case this is. */}
+        <div className="mt-2">
+          {species.is_first_ever ? (
+            <span className="inline-block px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">
+              First ever record
+            </span>
+          ) : (
+            <span className="inline-block px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-800">
+              New to {species.stations.join(', ')}
+            </span>
+          )}
+        </div>
         <div className="mt-2 text-sm">
           <span className="text-muted-foreground">First this week: </span>
           {new Date(species.first_detection_date).toLocaleDateString()}
@@ -111,6 +131,12 @@ const DailyDetections: React.FC = () => {
   const { startDate, endDate, getStationIdsParam } = useFilters()
   const [dailyData, setDailyData] = useState<DailyDetectionCount[]>([])
   const [newSpecies, setNewSpecies] = useState<NewSpeciesThisWeek[]>([])
+  const [returningSpecies, setReturningSpecies] = useState<ReturningSpecies[]>([])
+  const [overdueSpecies, setOverdueSpecies] = useState<OverdueSpecies[]>([])
+  // Three months of silence, matching the /species/returning default. Long
+  // enough that a bird simply going quiet for a fortnight is not reported as
+  // a return; short enough to catch a spring arrival.
+  const [absenceMonths, setAbsenceMonths] = useState(3)
   const [stats, setStats] = useState<DatabaseStats | null>(null)
   const [weather, setWeather] = useState<WeatherRecord | null>(null)
   const [loading, setLoading] = useState(true)
@@ -138,7 +164,7 @@ const DailyDetections: React.FC = () => {
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — loadData is closed over the filter values and we want to refetch when any of them change
   useEffect(() => {
     loadData()
-  }, [startDate, endDate, getStationIdsParam()])
+  }, [startDate, endDate, getStationIdsParam(), absenceMonths])
 
   // Sync weather only on initial load
   useEffect(() => {
@@ -204,15 +230,27 @@ const DailyDetections: React.FC = () => {
         station_ids: getStationIdsParam(),
       }
 
-      const [daily, species, statsData] = await Promise.all([
+      const [daily, species, statsData, returning, overdue] = await Promise.all([
         detectionsApi.getDailyCounts(filterParams),
         speciesApi.getThisWeek({ station_ids: filterParams.station_ids }),
         detectionsApi.getStats(filterParams),
+        // These two are informational: a failure shouldn't blank the page.
+        speciesApi
+          .getReturning({
+            station_ids: filterParams.station_ids,
+            min_absence_days: absenceMonths * 30,
+          })
+          .catch(() => [] as ReturningSpecies[]),
+        speciesApi
+          .getOverdue({ station_ids: filterParams.station_ids })
+          .catch(() => [] as OverdueSpecies[]),
       ])
 
       setDailyData(daily)
       setNewSpecies(species)
       setStats(statsData)
+      setReturningSpecies(returning)
+      setOverdueSpecies(overdue)
 
       // Also load weather
       loadWeather()
@@ -258,7 +296,7 @@ const DailyDetections: React.FC = () => {
     const rows = Math.ceil(stationNames.length / cols)
 
     const traces: Data[] = []
-    const annotations: Partial<import('plotly.js').Annotations>[] = []
+    const annotations: Partial<import('plotly.js').Annotation>[] = []
 
     stationNames.forEach((stationName, idx) => {
       const data = stationGroups[stationName]
@@ -490,6 +528,169 @@ const DailyDetections: React.FC = () => {
           </div>
         ) : (
           <div className="text-center text-muted-foreground py-8">No new species this week</div>
+        )}
+      </div>
+
+      {/* Back After an Absence.
+          Three months is long enough to separate a genuine seasonal return
+          from a bird that just went quiet for a fortnight, but in a temperate
+          region most of what lands here is normal migration working as
+          expected — which is the point of the list. */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+          <h2 className="text-xl font-semibold">Back After an Absence</h2>
+          <div className="flex items-center gap-2">
+            <label htmlFor="absence-threshold" className="text-sm text-muted-foreground">
+              Absence of at least
+            </label>
+            <select
+              id="absence-threshold"
+              value={absenceMonths}
+              onChange={(e) => setAbsenceMonths(Number(e.target.value))}
+              className="px-2 py-1 border rounded text-sm"
+            >
+              <option value={2}>2 months</option>
+              <option value={3}>3 months</option>
+              <option value={4}>4 months</option>
+              <option value={6}>6 months</option>
+              <option value={9}>9 months</option>
+            </select>
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Species heard again in the last fortnight after at least {absenceMonths} months of
+          silence — the returning migrants and seasonal singers.
+        </p>
+        {returningSpecies.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Species
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Heard again
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Previously
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Away
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Detections since
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {returningSpecies.map((species) => (
+                  <tr key={species.internal_id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm">
+                      <Link
+                        to={`/species-details?id=${species.internal_id}`}
+                        className="font-medium text-gray-900 hover:text-indigo-600 hover:underline"
+                      >
+                        {species.common_name}
+                      </Link>
+                      <div className="text-xs text-gray-500 italic">
+                        {species.scientific_name}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                      {new Date(species.returned_on).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                      {new Date(species.previous_seen).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">
+                      {Math.round(species.absence_days / 30)} months
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">
+                      {species.detection_count.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center text-muted-foreground py-8">
+            No species have returned after {absenceMonths}+ months recently
+          </div>
+        )}
+      </div>
+
+      {/* Expected But Not Yet Heard.
+          Compared against the same calendar window in previous years rather
+          than a fixed threshold, so a bird that simply hasn't arrived on
+          schedule is distinguishable from one that was never due. */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-semibold mb-1">Expected But Not Yet Heard</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          Species detected around this time of year in previous years, but not in the last three
+          weeks. Needs a full year of history before it can report anything.
+        </p>
+        {overdueSpecies.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Species
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Last heard
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Days absent
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Usually by
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Seen in
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {overdueSpecies.map((species) => (
+                  <tr key={species.internal_id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm">
+                      <Link
+                        to={`/species-details?id=${species.internal_id}`}
+                        className="font-medium text-gray-900 hover:text-indigo-600 hover:underline"
+                      >
+                        {species.common_name}
+                      </Link>
+                      <div className="text-xs text-gray-500 italic">
+                        {species.scientific_name}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                      {species.last_seen
+                        ? new Date(species.last_seen).toLocaleDateString()
+                        : 'Never'}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 text-right">
+                      {species.days_absent ?? '—'}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                      {species.typical_arrival ?? '—'}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                      {species.prior_years.join(', ')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center text-muted-foreground py-8">
+            Nothing overdue — every species seen at this time of year in the past has been heard
+            recently
+          </div>
         )}
       </div>
     </div>

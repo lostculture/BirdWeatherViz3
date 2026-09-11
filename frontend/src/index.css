@@ -6,9 +6,11 @@
  * Version: 1.1.0
  */
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4 replaces the three @tailwind directives with a single import.
+   The JS config is still the source of truth for the Indigo Bunting palette,
+   pulled in explicitly via @config. */
+@import 'tailwindcss';
+@config '../tailwind.config.js';
 
 @layer base {
   :root {

@@ -168,6 +168,15 @@ async def sync_all_stations(
         except Exception as e:
             logger.warning(f"Species stats update failed (non-critical): {str(e)}")
 
+    # Fold the new detections into the analytics rollups so the Analytics and
+    # Nocturnal pages reflect this sync. Runs on a worker thread.
+    if total_added > 0:
+        try:
+            from app.services import rollups
+            rollups.refresh_in_background()
+        except Exception as e:
+            logger.warning(f"Could not schedule rollup refresh: {str(e)}")
+
     # Sync weather for any new detection days
     weather_synced = False
     weather_days_fetched = 0
@@ -328,6 +337,12 @@ async def sync_all_stations_stream(
                 }) + "\n"
             except Exception as e:
                 logger.warning(f"Species stats update failed: {str(e)}")
+
+            try:
+                from app.services import rollups
+                rollups.refresh_in_background()
+            except Exception as e:
+                logger.warning(f"Could not schedule rollup refresh: {str(e)}")
 
         # Final result
         yield json.dumps({
@@ -876,6 +891,12 @@ async def sync_station_data(
                 logger.info("Species cached statistics updated")
             except Exception as e:
                 logger.warning(f"Species stats update failed (non-critical): {str(e)}")
+
+            try:
+                from app.services import rollups
+                rollups.refresh_in_background()
+            except Exception as e:
+                logger.warning(f"Could not schedule rollup refresh: {str(e)}")
 
         return SyncResponse(
             success=True,

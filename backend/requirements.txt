@@ -1,77 +1,82 @@
 # BirdWeatherViz3 Backend Requirements
-# Version: 1.0.0
+# Version: 2.0.0
+#
+# Every dependency here must be pure Python or ship prebuilt wheels for
+# macOS, Linux and Windows: the desktop build is PyInstaller-packaged and
+# there is no compiler on an end user's machine.
 
 # ========================================
 # FastAPI Core
 # ========================================
-fastapi>=0.117.0  # bumped from 0.109.0 to fix PYSEC-2024-38 / CVE-2024-47874 / CVE-2025-54121 / CVE-2025-62727 (transitively via starlette)
-starlette>=0.49.1  # explicit pin: the fastapi >=0.117 range allows it, and it's the first starlette without the above CVEs
-uvicorn[standard]>=0.32.0
-python-multipart==0.0.26
-aiofiles==23.2.1
+fastapi>=0.141.1  # >=0.117 was needed for PYSEC-2024-38 / CVE-2024-47874 / CVE-2025-54121 / CVE-2025-62727 (via starlette)
+starlette>=1.6.0  # first release without the CVEs above
+uvicorn[standard]>=0.52.4
+python-multipart>=0.0.32
+aiofiles>=25.1.0
 
 # ========================================
 # Database & ORM
 # ========================================
-sqlalchemy>=2.0.36  # Updated for Python 3.13 compatibility
-alembic>=1.13.0
-# psycopg2-binary==2.9.9  # Commented out for local SQLite testing - requires C++ compiler on Windows
+sqlalchemy>=2.0.52
+alembic>=1.19.2
+# psycopg2-binary  # Commented out: SQLite is the supported backend. Needs a
+#                  # C++ compiler on Windows, so it cannot go in the desktop build.
 
 # ========================================
 # Data Validation
 # ========================================
-pydantic>=2.10.0
-pydantic-settings>=2.1.0
-email-validator>=2.1.0
+pydantic>=2.13.5
+pydantic-settings>=2.15.0
+email-validator>=2.3.0
 
 # ========================================
 # Authentication & Security
 # ========================================
-PyJWT[crypto]==2.12.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.1.2
-slowapi==0.1.9
+PyJWT[crypto]>=2.13.0
+# bcrypt is used directly (app/api/deps.py) — passlib was dropped in v2.3.0.
+# It was unused, unmaintained, and its bcrypt version probing was what pinned
+# bcrypt to 4.1.2.
+bcrypt>=5.0.0
+slowapi>=0.1.10
 
 # ========================================
 # HTTP Client
 # ========================================
-requests==2.33.0
-httpx==0.26.0
+requests>=2.34.2
+httpx>=0.28.1
 
 # ========================================
-# Data Processing
+# Spreadsheet Import
 # ========================================
-pandas>=2.2.0
-numpy>=1.26.0
-scipy>=1.12.0
-openpyxl>=3.1.0  # read the eBird multilingual taxonomy XLSX upload
+openpyxl>=3.1.5  # read the eBird multilingual taxonomy XLSX upload
 
 # ========================================
-# Visualization Support
+# Timezones
 # ========================================
-plotly==5.18.0
+# zoneinfo needs a system tz database, which Windows does not have. Required
+# for per-station sunrise/sunset (services/solar.py) in the desktop build.
+tzdata>=2025.2; sys_platform == 'win32'
 
 # ========================================
 # Background Tasks & Scheduling
 # ========================================
-apscheduler==3.10.4
+apscheduler>=3.11.3
 
 # ========================================
 # Notifications
 # ========================================
-apprise==1.7.1
-
-# ========================================
-# Optional: Caching
-# ========================================
-redis==5.0.1
-
-# ========================================
-# WebSocket Support
-# ========================================
-websockets==12.0
+apprise>=1.13.1
 
 # ========================================
 # Development Dependencies
 # (Install with: pip install -r requirements-dev.txt)
 # ========================================
+#
+# Removed in v2.3.0 as unused, which also shrinks the PyInstaller bundle
+# substantially:
+#   pandas, numpy, scipy  - nothing imported them; analytics is SQL aggregation
+#   plotly                - charting is entirely client-side
+#   redis                 - no cache layer is wired up
+#   websockets            - uvicorn[standard] brings its own
+#   passlib               - superseded by using bcrypt directly
+# Re-add any of these if the feature that needs it lands.

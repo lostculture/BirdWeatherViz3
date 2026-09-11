@@ -132,6 +132,16 @@ def sync_station_job():
 
         db.commit()
 
+        # Fold the new detections into the analytics rollups. Done after the
+        # commit and after the weather sync, so the solar rollup can see the
+        # sunrise/sunset times for the days just fetched.
+        if result['detections_added'] > 0:
+            try:
+                from app.services import rollups
+                rollups.refresh_in_background()
+            except Exception as e:
+                logger.warning(f"Could not schedule rollup refresh: {e}")
+
     except Exception as e:
         logger.error(f"Error in scheduled sync job: {e}", exc_info=True)
         db.rollback()

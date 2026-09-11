@@ -89,12 +89,135 @@ class WeatherImpact(BaseModel):
     observation_count: int  # Number of time periods
 
 
+class ChorusSpecies(BaseModel):
+    """One species' share of a dawn/dusk chorus bar, for the hover tooltip."""
+
+    species_id: int
+    common_name: str
+    detection_count: int
+    english_name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
+
+
 class DawnChorusPoint(BaseModel):
     """Data point for dawn chorus analysis (sunrise-relative)."""
 
     minutes_from_sunrise: int  # Negative = before sunrise
     detection_count: int
     species_count: int  # Number of unique species
+    top_species: List[ChorusSpecies] = Field(
+        default_factory=list,
+        description="Most-detected species in this bin, for the hover tooltip",
+    )
+
+
+class DuskChorusPoint(BaseModel):
+    """
+    Data point for dusk chorus analysis (sunset-relative).
+
+    The evening counterpart to the dawn chorus. Bats emerging at sunset and
+    owls starting up after it both show here.
+    """
+
+    minutes_from_sunset: int  # Negative = before sunset
+    detection_count: int
+    species_count: int
+    top_species: List[ChorusSpecies] = Field(
+        default_factory=list,
+        description="Most-detected species in this bin, for the hover tooltip",
+    )
+
+
+class RollupTableState(BaseModel):
+    """Build state for one rollup table."""
+
+    name: str
+    last_detection_id: int
+    status: str  # idle | building | error
+    rows_processed: int
+    total_rows: int
+    message: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class RollupStatus(BaseModel):
+    """Overall state of the analytics rollups."""
+
+    detection: RollupTableState
+    solar: RollupTableState
+    max_detection_id: int
+    detections_pending: int
+    ready: bool
+    building: bool
+    solar_rebuild_pending: bool = False
+
+
+class NocturnalGroup(BaseModel):
+    """Summary for one nocturnal taxonomy group."""
+
+    group: str
+    label: str
+    description: str
+    species_count: int
+    detection_count: int
+
+
+class NocturnalSpecies(BaseModel):
+    """One species on the Nocturnal page."""
+
+    species_id: int
+    common_name: str
+    scientific_name: str
+    family: Optional[str] = None
+    group: Optional[str] = None
+    group_label: str
+    detection_count: int
+    active_nights: int
+    first_seen: Optional[date] = None
+    last_seen: Optional[date] = None
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
+
+
+class NocturnalSummary(BaseModel):
+    """Nocturnal page summary payload."""
+
+    taxonomy_available: bool = Field(
+        ...,
+        description="False when no species carries order/family taxonomy, so "
+                    "the UI can point at the eBird taxonomy upload instead of "
+                    "showing an empty page",
+    )
+    groups: List[NocturnalGroup]
+    species: List[NocturnalSpecies]
+
+
+class NocturnalHourPoint(BaseModel):
+    """Hour-of-day activity for one nocturnal species."""
+
+    species_id: int
+    common_name: str
+    group: Optional[str] = None
+    hour: int = Field(..., ge=0, le=23)
+    detection_count: int
+
+    @model_validator(mode="after")
+    def _localize(self):
+        return localize_common_name(self)
+
+
+class NocturnalNightPoint(BaseModel):
+    """Detections on one night for one group."""
+
+    date: date
+    group: str
+    detection_count: int
+    species_count: int
 
 
 class WeeklyTrend(BaseModel):

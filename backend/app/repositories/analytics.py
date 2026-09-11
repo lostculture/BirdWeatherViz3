@@ -2,19 +2,60 @@
 Analytics Repository
 Data access methods for advanced analytics queries.
 
-Version: 1.0.0
+Every method here reads the pre-aggregated rollup tables rather than the raw
+``detections`` table. At Pittsburgh-region volumes (~10M detections/year) a
+rolling-6-month query over raw rows scans millions of records and blows the
+30-second client timeout; the same query over ``detection_rollups`` touches
+tens of thousands.
+
+Confidence filtering: the rollups store cumulative counts at 0.05 steps from
+0.50 up. A requested ``min_confidence`` snaps *down* to the nearest stored step
+(so 0.72 is served as 0.70 and is never under-inclusive), and anything below
+0.50 uses the unfiltered count. See db/models/rollup.py.
+
+Version: 2.0.0
 """
 
-from typing import List, Optional
-from datetime import date, datetime, timedelta, time
-from sqlalchemy import func, and_, case, extract
+from typing import List, Optional, Tuple
+from datetime import date, timedelta
+from sqlalchemy import func, and_, case
 from sqlalchemy.orm import Session
 from collections import defaultdict
 
-from app.db.models.detection import Detection
+from app.db.models.rollup import DetectionRollup, SolarRollup, CONFIDENCE_BUCKETS
 from app.db.models.species import Species
-from app.db.models.station import Station
 from app.db.models.weather import Weather
+
+# Species listed in a dawn/dusk chorus bar's hover tooltip.
+CHORUS_TOP_SPECIES = 10
+
+# Every year of history folds onto this year in calendar mode. A leap year,
+# so 29 February has somewhere to go.
+CALENDAR_REFERENCE_YEAR = 2024
+
+MONTH_NAMES = [
+    '', 'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+]
+
+
+def _count_column(model, min_confidence: float):
+    """
+    Pick the cumulative-count column that satisfies ``min_confidence``.
+
+    Snaps down to the nearest stored bucket so the result is never narrower
+    than requested. Below the lowest bucket we use the unfiltered count.
+    """
+    chosen = None
+    for suffix, threshold in CONFIDENCE_BUCKETS:
+        if threshold <= min_confidence + 1e-9:
+            chosen = suffix
+        else:
+            break
+
+    if chosen is None:
+        return model.cnt_all
+    return getattr(model, f"cnt_{chosen}")
 
 
 class AnalyticsRepository:
@@ -23,6 +64,68 @@ class AnalyticsRepository:
     def __init__(self, db: Session):
         self.db = db
 
+    # ------------------------------------------------------------------
+    # Shared query helpers
+    # ------------------------------------------------------------------
+
+    def _scoped(self, query, station_ids: Optional[List[int]], model=DetectionRollup):
+        """Apply the station filter shared by every analytics query."""
+        if station_ids:
+            return query.filter(model.station_id.in_(station_ids))
+        return query
+
+    def _top_species_ids(
+        self,
+        cnt,
+        start_date: date,
+        end_date: Optional[date],
+        station_ids: Optional[List[int]],
+        limit: int,
+        order_by_days: bool = False,
+    ) -> List[Tuple[int, int]]:
+        """
+        Rank species by detections (or by active days) within a window.
+
+        Returns (species_id, metric) pairs, most active first.
+        """
+        metric = (
+            func.count(func.distinct(DetectionRollup.detection_date))
+            if order_by_days
+            else func.sum(cnt)
+        )
+
+        query = (
+            self.db.query(DetectionRollup.species_id, metric.label('metric'))
+            .filter(DetectionRollup.detection_date >= start_date)
+            .filter(cnt > 0)
+        )
+        if end_date is not None:
+            query = query.filter(DetectionRollup.detection_date <= end_date)
+        query = self._scoped(query, station_ids)
+
+        rows = (
+            query.group_by(DetectionRollup.species_id)
+            .order_by(metric.desc())
+            .limit(limit)
+            .all()
+        )
+        return [(r.species_id, int(r.metric or 0)) for r in rows]
+
+    def _species_lookup(self, species_ids: List[int]) -> dict:
+        """Map species id -> (common_name, scientific_name)."""
+        if not species_ids:
+            return {}
+        rows = (
+            self.db.query(Species.id, Species.common_name, Species.scientific_name)
+            .filter(Species.id.in_(species_ids))
+            .all()
+        )
+        return {r.id: (r.common_name, r.scientific_name) for r in rows}
+
+    # ------------------------------------------------------------------
+    # Charts
+    # ------------------------------------------------------------------
+
     def get_species_hour_bubble_data(
         self,
         limit: int = 50,
@@ -30,79 +133,43 @@ class AnalyticsRepository:
         station_ids: Optional[List[int]] = None,
         min_confidence: float = 0.7
     ) -> List[dict]:
-        """
-        Get species activity by hour for bubble chart.
-
-        Returns top N species with their hourly detection counts.
-        """
+        """Species activity by hour of day, for the bubble/heatmap chart."""
         cutoff_date = date.today() - timedelta(days=months * 30)
+        cnt = _count_column(DetectionRollup, min_confidence)
 
-        # First, get top species by total detections
-        top_species_query = (
-            self.db.query(
-                Species.id,
-                Species.common_name,
-                Species.scientific_name,
-                func.count(Detection.id).label('total_detections')
-            )
-            .join(Detection, Detection.species_id == Species.id)
-            .filter(Detection.detection_date >= cutoff_date)
-            .filter(Detection.confidence >= min_confidence)
-        )
-
-        if station_ids:
-            top_species_query = top_species_query.filter(
-                Detection.station_id.in_(station_ids)
-            )
-
-        top_species = (
-            top_species_query
-            .group_by(Species.id, Species.common_name, Species.scientific_name)
-            .order_by(func.count(Detection.id).desc())
-            .limit(limit)
-            .all()
-        )
-
-        species_ids = [s.id for s in top_species]
-        species_totals = {s.id: s.total_detections for s in top_species}
-        species_info = {s.id: (s.common_name, s.scientific_name) for s in top_species}
-
-        if not species_ids:
+        top = self._top_species_ids(cnt, cutoff_date, None, station_ids, limit)
+        if not top:
             return []
 
-        # Get hourly breakdown for these species
-        hourly_query = (
+        species_ids = [sid for sid, _ in top]
+        species_totals = dict(top)
+        info = self._species_lookup(species_ids)
+
+        query = (
             self.db.query(
-                Detection.species_id,
-                extract('hour', Detection.timestamp).label('hour'),
-                func.count(Detection.id).label('detection_count')
+                DetectionRollup.species_id,
+                DetectionRollup.hour,
+                func.sum(cnt).label('detection_count'),
             )
-            .filter(Detection.species_id.in_(species_ids))
-            .filter(Detection.detection_date >= cutoff_date)
-            .filter(Detection.confidence >= min_confidence)
+            .filter(DetectionRollup.species_id.in_(species_ids))
+            .filter(DetectionRollup.detection_date >= cutoff_date)
         )
+        query = self._scoped(query, station_ids)
 
-        if station_ids:
-            hourly_query = hourly_query.filter(
-                Detection.station_id.in_(station_ids)
-            )
-
-        hourly_data = (
-            hourly_query
-            .group_by(Detection.species_id, extract('hour', Detection.timestamp))
-            .all()
-        )
+        rows = query.group_by(DetectionRollup.species_id, DetectionRollup.hour).all()
 
         results = []
-        for row in hourly_data:
-            common_name, scientific_name = species_info[row.species_id]
+        for row in rows:
+            if not row.detection_count:
+                continue
+            common_name, scientific_name = info.get(row.species_id, ('Unknown', 'Unknown'))
             results.append({
                 'species_id': row.species_id,
                 'common_name': common_name,
                 'scientific_name': scientific_name,
                 'hour': int(row.hour),
-                'detection_count': row.detection_count,
-                'total_detections': species_totals[row.species_id]
+                'detection_count': int(row.detection_count),
+                'total_detections': species_totals[row.species_id],
             })
 
         return results
@@ -115,135 +182,110 @@ class AnalyticsRepository:
         limit: int = 50
     ) -> List[dict]:
         """
-        Get phenology data for heatmap (species x week).
+        Phenology heatmap data (species x week).
 
-        Returns detection counts by species and week number.
-        year=0 means rolling 12 months from today.
+        ``year=None`` or ``0`` means a rolling 12 months from today.
         """
         today = date.today()
         if year is None or year == 0:
-            # Rolling 12 months
             end_date = today
             start_date = date(today.year - 1, today.month, today.day)
         else:
             start_date = date(year, 1, 1)
             end_date = date(year, 12, 31)
 
-        # Get top species first
-        top_species_query = (
-            self.db.query(
-                Species.id,
-                Species.common_name,
-                func.count(Detection.id).label('total')
-            )
-            .join(Detection, Detection.species_id == Species.id)
-            .filter(Detection.detection_date >= start_date)
-            .filter(Detection.detection_date <= end_date)
-            .filter(Detection.confidence >= min_confidence)
-        )
+        cnt = _count_column(DetectionRollup, min_confidence)
 
-        if station_ids:
-            top_species_query = top_species_query.filter(
-                Detection.station_id.in_(station_ids)
-            )
-
-        top_species = (
-            top_species_query
-            .group_by(Species.id, Species.common_name)
-            .order_by(func.count(Detection.id).desc())
-            .limit(limit)
-            .all()
-        )
-
-        species_ids = [s.id for s in top_species]
-        species_names = {s.id: s.common_name for s in top_species}
-
-        if not species_ids:
+        top = self._top_species_ids(cnt, start_date, end_date, station_ids, limit)
+        if not top:
             return []
 
-        # Get weekly data - use strftime for SQLite compatibility
-        weekly_query = (
+        species_ids = [sid for sid, _ in top]
+        info = self._species_lookup(species_ids)
+
+        week = func.strftime('%W', DetectionRollup.detection_date).label('week')
+        # Group by calendar year as well as week: a rolling 12-month window
+        # spans two years, and reporting the requested `year` verbatim gave a
+        # null when the caller asked for the rolling window.
+        week_year = func.strftime('%Y', DetectionRollup.detection_date).label('week_year')
+
+        query = (
             self.db.query(
-                Detection.species_id,
-                func.strftime('%W', Detection.detection_date).label('week'),
-                func.count(Detection.id).label('detection_count')
+                DetectionRollup.species_id,
+                week_year,
+                week,
+                func.sum(cnt).label('detection_count'),
             )
-            .filter(Detection.species_id.in_(species_ids))
-            .filter(Detection.detection_date >= start_date)
-            .filter(Detection.detection_date <= end_date)
-            .filter(Detection.confidence >= min_confidence)
+            .filter(DetectionRollup.species_id.in_(species_ids))
+            .filter(DetectionRollup.detection_date >= start_date)
+            .filter(DetectionRollup.detection_date <= end_date)
         )
+        query = self._scoped(query, station_ids)
 
-        if station_ids:
-            weekly_query = weekly_query.filter(
-                Detection.station_id.in_(station_ids)
-            )
+        rows = query.group_by(DetectionRollup.species_id, week_year, week).all()
 
-        weekly_data = (
-            weekly_query
-            .group_by(
-                Detection.species_id,
-                func.strftime('%W', Detection.detection_date)
-            )
-            .all()
-        )
+        # The heatmap plots one cell per (species, week), so fold the two
+        # calendar years of a rolling window onto the same week number.
+        cells: dict = {}
+        for row in rows:
+            if not row.detection_count:
+                continue
+            key = (row.species_id, int(row.week) + 1)  # strftime %W is 0-indexed
+            cell = cells.get(key)
+            if cell is None:
+                cells[key] = {
+                    'species_id': row.species_id,
+                    'common_name': info.get(row.species_id, ('Unknown', ''))[0],
+                    'week_number': key[1],
+                    'year': int(row.week_year),
+                    'detection_count': int(row.detection_count),
+                }
+            else:
+                cell['detection_count'] += int(row.detection_count)
+                cell['year'] = max(cell['year'], int(row.week_year))
 
-        results = []
-        for row in weekly_data:
-            results.append({
-                'species_id': row.species_id,
-                'common_name': species_names[row.species_id],
-                'week_number': int(row.week) + 1,  # Convert 0-indexed to 1-indexed
-                'year': year,
-                'detection_count': row.detection_count
-            })
-
-        return results
+        return list(cells.values())
 
     def get_confidence_scatter_data(
         self,
         station_ids: Optional[List[int]] = None,
         min_detections: int = 10
     ) -> List[dict]:
-        """
-        Get detection count vs confidence data for scatter plot.
-
-        Returns one point per species with total detections and avg confidence.
-        """
-        query = (
-            self.db.query(
-                Species.id,
-                Species.common_name,
-                Species.scientific_name,
-                func.count(Detection.id).label('total_detections'),
-                func.avg(Detection.confidence).label('avg_confidence'),
-                func.count(func.distinct(Detection.detection_date)).label('detection_days')
-            )
-            .join(Detection, Detection.species_id == Species.id)
+        """Detections vs. mean confidence, one point per species."""
+        total = func.sum(DetectionRollup.cnt_all)
+        query = self.db.query(
+            DetectionRollup.species_id,
+            total.label('total_detections'),
+            func.sum(DetectionRollup.conf_sum).label('conf_sum'),
+            func.count(func.distinct(DetectionRollup.detection_date)).label('detection_days'),
         )
+        query = self._scoped(query, station_ids)
 
-        if station_ids:
-            query = query.filter(Detection.station_id.in_(station_ids))
-
-        results = (
-            query
-            .group_by(Species.id, Species.common_name, Species.scientific_name)
-            .having(func.count(Detection.id) >= min_detections)
-            .order_by(func.count(Detection.id).desc())
+        rows = (
+            query.group_by(DetectionRollup.species_id)
+            .having(total >= min_detections)
+            .order_by(total.desc())
             .all()
         )
 
-        return [
-            {
-                'species_id': row.id,
-                'common_name': row.common_name,
-                'scientific_name': row.scientific_name,
-                'total_detections': row.total_detections,
-                'avg_confidence': round(float(row.avg_confidence), 3),
-                'detection_days': row.detection_days
-            }
-            for row in results
-        ]
+        info = self._species_lookup([r.species_id for r in rows])
+
+        results = []
+        for row in rows:
+            count = int(row.total_detections or 0)
+            if count == 0:
+                continue
+            common_name, scientific_name = info.get(row.species_id, ('Unknown', 'Unknown'))
+            results.append({
+                'species_id': row.species_id,
+                'common_name': common_name,
+                'scientific_name': scientific_name,
+                'total_detections': count,
+                'avg_confidence': round(float(row.conf_sum or 0.0) / count, 3),
+                'detection_days': int(row.detection_days or 0),
+            })
+
+        return results
 
     def get_confidence_by_hour(
         self,
@@ -251,61 +293,46 @@ class AnalyticsRepository:
         months: int = 6
     ) -> List[dict]:
         """
-        Get confidence distribution by hour for heatmap.
+        Confidence distribution by hour, for the reliability heatmap.
 
-        Returns counts binned by hour and confidence range.
-        Optimized: Uses CASE statement to bin all data in a single query.
+        Each bin is the difference between two cumulative rollup columns, so
+        the whole heatmap comes from a single grouped scan.
         """
         cutoff_date = date.today() - timedelta(days=months * 30)
 
-        # Use CASE to bin confidence in a single query
-        confidence_bin = case(
-            (and_(Detection.confidence >= 0.5, Detection.confidence < 0.6), '0.50-0.60'),
-            (and_(Detection.confidence >= 0.6, Detection.confidence < 0.7), '0.60-0.70'),
-            (and_(Detection.confidence >= 0.7, Detection.confidence < 0.8), '0.70-0.80'),
-            (and_(Detection.confidence >= 0.8, Detection.confidence < 0.9), '0.80-0.90'),
-            (Detection.confidence >= 0.9, '0.90-1.00'),
-            else_=None
-        ).label('confidence_bin')
+        bins = [
+            ('0.50-0.60', 0.5, 0.6, DetectionRollup.cnt_50, DetectionRollup.cnt_60),
+            ('0.60-0.70', 0.6, 0.7, DetectionRollup.cnt_60, DetectionRollup.cnt_70),
+            ('0.70-0.80', 0.7, 0.8, DetectionRollup.cnt_70, DetectionRollup.cnt_80),
+            ('0.80-0.90', 0.8, 0.9, DetectionRollup.cnt_80, DetectionRollup.cnt_90),
+            ('0.90-1.00', 0.9, 1.0, DetectionRollup.cnt_90, None),
+        ]
 
-        query = (
-            self.db.query(
-                extract('hour', Detection.timestamp).label('hour'),
-                confidence_bin,
-                func.count(Detection.id).label('detection_count')
-            )
-            .filter(Detection.detection_date >= cutoff_date)
-            .filter(Detection.confidence >= 0.5)
+        selects = [DetectionRollup.hour]
+        for _, _, _, lower, upper in bins:
+            expr = func.sum(lower - upper) if upper is not None else func.sum(lower)
+            selects.append(expr)
+
+        query = self.db.query(*selects).filter(
+            DetectionRollup.detection_date >= cutoff_date
         )
+        query = self._scoped(query, station_ids)
 
-        if station_ids:
-            query = query.filter(Detection.station_id.in_(station_ids))
-
-        hourly_data = (
-            query
-            .group_by(extract('hour', Detection.timestamp), confidence_bin)
-            .all()
-        )
-
-        # Map bin labels to min/max values
-        bin_ranges = {
-            '0.50-0.60': (0.5, 0.6),
-            '0.60-0.70': (0.6, 0.7),
-            '0.70-0.80': (0.7, 0.8),
-            '0.80-0.90': (0.8, 0.9),
-            '0.90-1.00': (0.9, 1.0),
-        }
+        rows = query.group_by(DetectionRollup.hour).all()
 
         results = []
-        for row in hourly_data:
-            if row.confidence_bin and row.confidence_bin in bin_ranges:
-                conf_min, conf_max = bin_ranges[row.confidence_bin]
+        for row in rows:
+            hour = int(row[0])
+            for idx, (label, conf_min, conf_max, _, _) in enumerate(bins, start=1):
+                count = int(row[idx] or 0)
+                if count <= 0:
+                    continue
                 results.append({
-                    'hour': int(row.hour),
-                    'confidence_bin': row.confidence_bin,
+                    'hour': hour,
+                    'confidence_bin': label,
                     'confidence_min': conf_min,
                     'confidence_max': conf_max,
-                    'detection_count': row.detection_count
+                    'detection_count': count,
                 })
 
         return results
@@ -316,187 +343,287 @@ class AnalyticsRepository:
         months: int = 6,
         station_ids: Optional[List[int]] = None,
         min_confidence: float = 0.7,
-        limit: int = 20
+        limit: int = 20,
+        mode: str = "rolling",
     ) -> List[dict]:
         """
-        Get temporal distribution data for density/KDE visualization.
+        Daily detection counts per species, for the density/KDE plot.
 
-        Returns daily detection counts per species over time.
+        ``mode='rolling'`` returns real dates over the last ``months`` — a
+        timeline. ``mode='calendar'`` folds every year of history onto a single
+        calendar year, so the x axis runs January to December and the shape
+        reads as seasonality rather than as a slice of recent history. Several
+        years of the same species reinforce each other instead of appearing as
+        separate humps.
         """
-        cutoff_date = date.today() - timedelta(days=months * 30)
+        if mode not in ("rolling", "calendar"):
+            raise ValueError(f"Unknown mode {mode!r}")
 
-        # If no species specified, get top species
+        cnt = _count_column(DetectionRollup, min_confidence)
+        # Calendar mode deliberately spans all history; a cutoff would defeat
+        # the point of folding the years together.
+        cutoff_date = (
+            date.min if mode == "calendar"
+            else date.today() - timedelta(days=months * 30)
+        )
+
         if not species_ids:
-            top_species_query = (
-                self.db.query(Species.id)
-                .join(Detection, Detection.species_id == Species.id)
-                .filter(Detection.detection_date >= cutoff_date)
-                .filter(Detection.confidence >= min_confidence)
-            )
-
-            if station_ids:
-                top_species_query = top_species_query.filter(
-                    Detection.station_id.in_(station_ids)
-                )
-
-            top_species = (
-                top_species_query
-                .group_by(Species.id)
-                .order_by(func.count(Detection.id).desc())
-                .limit(limit)
-                .all()
-            )
-            species_ids = [s.id for s in top_species]
+            species_ids = [
+                sid for sid, _ in
+                self._top_species_ids(cnt, cutoff_date, None, station_ids, limit)
+            ]
 
         if not species_ids:
             return []
 
-        # Get species names
-        species_info = {
-            s.id: s.common_name
-            for s in self.db.query(Species).filter(Species.id.in_(species_ids)).all()
-        }
+        info = self._species_lookup(species_ids)
 
-        # Get daily data
+        if mode == "calendar":
+            # Group by month and day, discarding the year.
+            month_day = func.strftime('%m-%d', DetectionRollup.detection_date).label('md')
+            query = (
+                self.db.query(
+                    DetectionRollup.species_id,
+                    month_day,
+                    func.sum(cnt).label('detection_count'),
+                )
+                .filter(DetectionRollup.species_id.in_(species_ids))
+            )
+            query = self._scoped(query, station_ids)
+            rows = query.group_by(DetectionRollup.species_id, month_day).all()
+
+            results = []
+            for row in rows:
+                if not row.detection_count:
+                    continue
+                try:
+                    month, day = (int(part) for part in row.md.split('-'))
+                    # CALENDAR_REFERENCE_YEAR is a leap year, so 29 February
+                    # survives instead of being dropped or folded into the 28th.
+                    plotted = date(CALENDAR_REFERENCE_YEAR, month, day)
+                except (ValueError, AttributeError):
+                    continue
+                results.append({
+                    'species_id': row.species_id,
+                    'common_name': info.get(row.species_id, ('Unknown', ''))[0],
+                    'date': plotted,
+                    'detection_count': int(row.detection_count),
+                })
+
+            results.sort(key=lambda r: r['date'])
+            return results
+
         query = (
             self.db.query(
-                Detection.species_id,
-                Detection.detection_date,
-                func.count(Detection.id).label('detection_count')
+                DetectionRollup.species_id,
+                DetectionRollup.detection_date,
+                func.sum(cnt).label('detection_count'),
             )
-            .filter(Detection.species_id.in_(species_ids))
-            .filter(Detection.detection_date >= cutoff_date)
-            .filter(Detection.confidence >= min_confidence)
+            .filter(DetectionRollup.species_id.in_(species_ids))
+            .filter(DetectionRollup.detection_date >= cutoff_date)
         )
+        query = self._scoped(query, station_ids)
 
-        if station_ids:
-            query = query.filter(Detection.station_id.in_(station_ids))
-
-        daily_data = (
-            query
-            .group_by(Detection.species_id, Detection.detection_date)
-            .order_by(Detection.detection_date)
+        rows = (
+            query.group_by(DetectionRollup.species_id, DetectionRollup.detection_date)
+            .order_by(DetectionRollup.detection_date)
             .all()
         )
 
         return [
             {
                 'species_id': row.species_id,
-                'common_name': species_info.get(row.species_id, 'Unknown'),
+                'common_name': info.get(row.species_id, ('Unknown', ''))[0],
                 'date': row.detection_date,
-                'detection_count': row.detection_count
+                'detection_count': int(row.detection_count),
             }
-            for row in daily_data
+            for row in rows
+            if row.detection_count
         ]
+
+    def get_chorus_data(
+        self,
+        phase: str = 'sunrise',
+        station_ids: Optional[List[int]] = None,
+        months: int = 6,
+        min_confidence: float = 0.7,
+        window_minutes: int = 120,
+    ) -> List[dict]:
+        """
+        Detection activity relative to sunrise or sunset.
+
+        ``phase='sunrise'`` gives the dawn chorus; ``phase='sunset'`` gives the
+        dusk chorus, which is where bat and owl activity shows up. Both read
+        the solar rollup, which already stores 5-minute bins out to +/-180
+        minutes with the midnight wrap handled at build time.
+        """
+        if phase not in ('sunrise', 'sunset'):
+            raise ValueError(f"phase must be 'sunrise' or 'sunset', got {phase!r}")
+
+        cutoff_date = date.today() - timedelta(days=months * 30)
+        cnt = _count_column(SolarRollup, min_confidence)
+
+        query = (
+            self.db.query(
+                SolarRollup.minute_bin,
+                func.sum(cnt).label('detection_count'),
+                func.count(func.distinct(SolarRollup.species_id)).label('species_count'),
+            )
+            .filter(SolarRollup.phase == phase)
+            .filter(SolarRollup.detection_date >= cutoff_date)
+            .filter(SolarRollup.minute_bin >= -window_minutes)
+            .filter(SolarRollup.minute_bin <= window_minutes)
+            .filter(cnt > 0)
+        )
+        query = self._scoped(query, station_ids, model=SolarRollup)
+
+        rows = (
+            query.group_by(SolarRollup.minute_bin)
+            .order_by(SolarRollup.minute_bin)
+            .all()
+        )
+
+        top_by_bin = self._chorus_top_species(
+            phase, cutoff_date, station_ids, window_minutes, cnt
+        )
+
+        key = 'minutes_from_sunrise' if phase == 'sunrise' else 'minutes_from_sunset'
+        return [
+            {
+                key: int(row.minute_bin),
+                'detection_count': int(row.detection_count or 0),
+                'species_count': int(row.species_count or 0),
+                'top_species': top_by_bin.get(int(row.minute_bin), []),
+            }
+            for row in rows
+            if row.detection_count
+        ]
+
+    def _chorus_top_species(
+        self,
+        phase: str,
+        cutoff_date: date,
+        station_ids: Optional[List[int]],
+        window_minutes: int,
+        cnt,
+        limit: int = CHORUS_TOP_SPECIES,
+        species_ids: Optional[List[int]] = None,
+    ) -> dict:
+        """
+        The most-detected species in each minute bin, for hover tooltips.
+
+        One grouped scan of the solar rollup, ranked per bin in Python. The
+        rollup already stores counts per species per bin, so this costs about
+        the same as the totals query beside it.
+        """
+        query = (
+            self.db.query(
+                SolarRollup.minute_bin,
+                SolarRollup.species_id,
+                func.sum(cnt).label('detection_count'),
+            )
+            .filter(SolarRollup.phase == phase)
+            .filter(SolarRollup.detection_date >= cutoff_date)
+            .filter(SolarRollup.minute_bin >= -window_minutes)
+            .filter(SolarRollup.minute_bin <= window_minutes)
+            .filter(cnt > 0)
+        )
+        if species_ids:
+            query = query.filter(SolarRollup.species_id.in_(species_ids))
+        query = self._scoped(query, station_ids, model=SolarRollup)
+
+        rows = query.group_by(SolarRollup.minute_bin, SolarRollup.species_id).all()
+        if not rows:
+            return {}
+
+        by_bin: dict = defaultdict(list)
+        for row in rows:
+            count = int(row.detection_count or 0)
+            if count:
+                by_bin[int(row.minute_bin)].append((row.species_id, count))
+
+        # Only the species that actually make a tooltip need names looking up.
+        wanted = set()
+        for entries in by_bin.values():
+            entries.sort(key=lambda e: e[1], reverse=True)
+            del entries[limit:]
+            wanted.update(sid for sid, _ in entries)
+
+        info = self._species_lookup(list(wanted))
+
+        return {
+            minute_bin: [
+                {
+                    'species_id': sid,
+                    'common_name': info.get(sid, ('Unknown', ''))[0],
+                    'detection_count': count,
+                }
+                for sid, count in entries
+            ]
+            for minute_bin, entries in by_bin.items()
+        }
 
     def get_dawn_chorus_data(
         self,
         station_ids: Optional[List[int]] = None,
         months: int = 6,
         min_confidence: float = 0.7,
-        window_minutes: int = 120  # 2 hours before and after sunrise
+        window_minutes: int = 120
     ) -> List[dict]:
-        """
-        Get detection activity relative to sunrise time.
-
-        Returns aggregated counts by minutes from sunrise.
-        """
-        cutoff_date = date.today() - timedelta(days=months * 30)
-
-        # Get detections with weather data (for sunrise times)
-        query = (
-            self.db.query(
-                Detection.timestamp,
-                Detection.detection_date,
-                Detection.station_id,
-                Detection.species_id,
-                Weather.sunrise
-            )
-            .join(Weather, and_(
-                Weather.station_id == Detection.station_id,
-                Weather.weather_date == Detection.detection_date
-            ))
-            .filter(Detection.detection_date >= cutoff_date)
-            .filter(Detection.confidence >= min_confidence)
-            .filter(Weather.sunrise.isnot(None))
+        """Dawn chorus: activity relative to sunrise."""
+        return self.get_chorus_data(
+            phase='sunrise',
+            station_ids=station_ids,
+            months=months,
+            min_confidence=min_confidence,
+            window_minutes=window_minutes,
         )
 
-        if station_ids:
-            query = query.filter(Detection.station_id.in_(station_ids))
-
-        detections = query.all()
-
-        # Calculate minutes from sunrise for each detection
-        dawn_counts = defaultdict(lambda: {'detection_count': 0, 'species': set()})
-
-        for detection in detections:
-            if detection.sunrise is None or detection.timestamp is None:
-                continue
-
-            detection_time = detection.timestamp.time()
-            sunrise_time = detection.sunrise
-
-            # Convert times to minutes from midnight for calculation
-            det_minutes = detection_time.hour * 60 + detection_time.minute
-            sunrise_minutes = sunrise_time.hour * 60 + sunrise_time.minute
-
-            minutes_from_sunrise = det_minutes - sunrise_minutes
-
-            # Only include detections within the window
-            if -window_minutes <= minutes_from_sunrise <= window_minutes:
-                # Round to 5-minute bins
-                bin_minutes = (minutes_from_sunrise // 5) * 5
-                dawn_counts[bin_minutes]['detection_count'] += 1
-                dawn_counts[bin_minutes]['species'].add(detection.species_id)
-
-        results = []
-        for minutes, data in sorted(dawn_counts.items()):
-            results.append({
-                'minutes_from_sunrise': minutes,
-                'detection_count': data['detection_count'],
-                'species_count': len(data['species'])
-            })
-
-        return results
+    def get_dusk_chorus_data(
+        self,
+        station_ids: Optional[List[int]] = None,
+        months: int = 6,
+        min_confidence: float = 0.7,
+        window_minutes: int = 120
+    ) -> List[dict]:
+        """Dusk chorus: activity relative to sunset."""
+        return self.get_chorus_data(
+            phase='sunset',
+            station_ids=station_ids,
+            months=months,
+            min_confidence=min_confidence,
+            window_minutes=window_minutes,
+        )
 
     def get_weather_impact_data(
         self,
         station_ids: Optional[List[int]] = None,
         months: int = 6,
         min_confidence: float = 0.7,
-        analysis_type: str = 'temperature'  # 'temperature', 'condition', 'precipitation'
+        analysis_type: str = 'temperature'
     ) -> List[dict]:
-        """
-        Get detection counts grouped by weather conditions.
-
-        Returns aggregated detection data by weather bins.
-        """
+        """Detection counts grouped by weather conditions."""
         cutoff_date = date.today() - timedelta(days=months * 30)
+        cnt = _count_column(DetectionRollup, min_confidence)
 
-        # Base query for detections with weather
-        query = (
-            self.db.query(
-                Weather.weather_date,
-                Weather.temp_avg,
-                Weather.weather_description,
-                Weather.precipitation,
-                func.count(Detection.id).label('detection_count')
+        def daily_query(*extra_columns):
+            query = (
+                self.db.query(
+                    Weather.weather_date,
+                    *extra_columns,
+                    func.sum(cnt).label('detection_count'),
+                )
+                .join(DetectionRollup, and_(
+                    Weather.station_id == DetectionRollup.station_id,
+                    Weather.weather_date == DetectionRollup.detection_date,
+                ))
+                .filter(DetectionRollup.detection_date >= cutoff_date)
             )
-            .join(Detection, and_(
-                Weather.station_id == Detection.station_id,
-                Weather.weather_date == Detection.detection_date
-            ))
-            .filter(Detection.detection_date >= cutoff_date)
-            .filter(Detection.confidence >= min_confidence)
-        )
+            return self._scoped(query, station_ids)
 
-        if station_ids:
-            query = query.filter(Detection.station_id.in_(station_ids))
-
-        results = []
+        results: List[dict] = []
 
         if analysis_type == 'temperature':
-            # Optimized: Use CASE statement to bin all temperature data in single query
             temp_bin = case(
                 (Weather.temp_avg < 0, '< 0°F'),
                 (and_(Weather.temp_avg >= 0, Weather.temp_avg < 20), '0-20°F'),
@@ -510,42 +637,22 @@ class AnalyticsRepository:
                 else_=None
             ).label('temp_bin')
 
-            daily_query = (
-                self.db.query(
-                    temp_bin,
-                    Weather.weather_date,
-                    func.count(Detection.id).label('detection_count')
-                )
-                .join(Detection, and_(
-                    Weather.station_id == Detection.station_id,
-                    Weather.weather_date == Detection.detection_date
-                ))
-                .filter(Detection.detection_date >= cutoff_date)
-                .filter(Detection.confidence >= min_confidence)
+            rows = (
+                daily_query(temp_bin)
                 .filter(Weather.temp_avg.isnot(None))
-            )
-
-            if station_ids:
-                daily_query = daily_query.filter(Detection.station_id.in_(station_ids))
-
-            daily_data = (
-                daily_query
                 .group_by(temp_bin, Weather.weather_date)
                 .all()
             )
 
-            # Aggregate by temperature bin
-            bin_stats = {}
-            for row in daily_data:
-                if row.temp_bin is None:
+            bin_stats = defaultdict(lambda: {'total': 0, 'days': 0})
+            for row in rows:
+                if row.temp_bin is None or not row.detection_count:
                     continue
-                if row.temp_bin not in bin_stats:
-                    bin_stats[row.temp_bin] = {'total': 0, 'days': 0}
-                bin_stats[row.temp_bin]['total'] += row.detection_count
+                bin_stats[row.temp_bin]['total'] += int(row.detection_count)
                 bin_stats[row.temp_bin]['days'] += 1
 
-            # Output in consistent order
-            bin_order = ['< 0°F', '0-20°F', '20-32°F', '32-50°F', '50-60°F', '60-70°F', '70-80°F', '80-90°F', '> 90°F']
+            bin_order = ['< 0°F', '0-20°F', '20-32°F', '32-50°F', '50-60°F',
+                         '60-70°F', '70-80°F', '80-90°F', '> 90°F']
             for label in bin_order:
                 if label in bin_stats:
                     stats = bin_stats[label]
@@ -554,35 +661,35 @@ class AnalyticsRepository:
                         'condition': None,
                         'avg_detections': round(stats['total'] / stats['days'], 1),
                         'total_detections': stats['total'],
-                        'observation_count': stats['days']
+                        'observation_count': stats['days'],
                     })
 
         elif analysis_type == 'condition':
-            # Group by weather condition
-            daily_data = (
-                query
+            rows = (
+                daily_query(Weather.weather_description)
                 .group_by(Weather.weather_date, Weather.weather_description)
                 .all()
             )
 
             condition_stats = defaultdict(lambda: {'total': 0, 'days': 0})
-            for row in daily_data:
-                condition = row.weather_description or 'Unknown'
-                # Simplify condition descriptions
-                if 'rain' in condition.lower() or 'shower' in condition.lower():
+            for row in rows:
+                if not row.detection_count:
+                    continue
+                raw = (row.weather_description or '').lower()
+                if 'rain' in raw or 'shower' in raw:
                     condition = 'Rainy'
-                elif 'cloud' in condition.lower() or 'overcast' in condition.lower():
+                elif 'cloud' in raw or 'overcast' in raw:
                     condition = 'Cloudy'
-                elif 'sun' in condition.lower() or 'clear' in condition.lower():
+                elif 'sun' in raw or 'clear' in raw:
                     condition = 'Clear/Sunny'
-                elif 'snow' in condition.lower():
+                elif 'snow' in raw:
                     condition = 'Snow'
-                elif 'fog' in condition.lower() or 'mist' in condition.lower():
+                elif 'fog' in raw or 'mist' in raw:
                     condition = 'Fog/Mist'
                 else:
                     condition = 'Other'
 
-                condition_stats[condition]['total'] += row.detection_count
+                condition_stats[condition]['total'] += int(row.detection_count)
                 condition_stats[condition]['days'] += 1
 
             for condition, stats in condition_stats.items():
@@ -591,19 +698,17 @@ class AnalyticsRepository:
                     'condition': condition,
                     'avg_detections': round(stats['total'] / stats['days'], 1),
                     'total_detections': stats['total'],
-                    'observation_count': stats['days']
+                    'observation_count': stats['days'],
                 })
 
         elif analysis_type == 'precipitation':
-            # Group by precipitation presence including snow
-            # First get all daily data
-            daily_data = (
-                query
-                .group_by(Weather.weather_date, Weather.weather_description, Weather.precipitation)
+            rows = (
+                daily_query(Weather.weather_description, Weather.precipitation)
+                .group_by(Weather.weather_date, Weather.weather_description,
+                          Weather.precipitation)
                 .all()
             )
 
-            # Categorize each day
             categories = {
                 'No Precip': {'total': 0, 'days': 0},
                 'Light Rain': {'total': 0, 'days': 0},
@@ -612,11 +717,12 @@ class AnalyticsRepository:
                 'Snow': {'total': 0, 'days': 0},
             }
 
-            for row in daily_data:
+            for row in rows:
+                if not row.detection_count:
+                    continue
                 desc = (row.weather_description or '').lower()
                 precip = row.precipitation or 0
 
-                # Check for snow first (based on description)
                 if 'snow' in desc or 'sleet' in desc or 'ice' in desc:
                     category = 'Snow'
                 elif precip < 0.01:
@@ -628,10 +734,9 @@ class AnalyticsRepository:
                 else:
                     category = 'Heavy Rain'
 
-                categories[category]['total'] += row.detection_count
+                categories[category]['total'] += int(row.detection_count)
                 categories[category]['days'] += 1
 
-            # Build results in order
             for label in ['No Precip', 'Light Rain', 'Moderate Rain', 'Heavy Rain', 'Snow']:
                 stats = categories[label]
                 if stats['days'] > 0:
@@ -640,7 +745,7 @@ class AnalyticsRepository:
                         'condition': None,
                         'avg_detections': round(stats['total'] / stats['days'], 1),
                         'total_detections': stats['total'],
-                        'observation_count': stats['days']
+                        'observation_count': stats['days'],
                     })
 
         return results
@@ -651,157 +756,142 @@ class AnalyticsRepository:
         months: int = 12,
         min_confidence: float = 0.7
     ) -> List[dict]:
-        """
-        Get weekly detection trends over time.
-
-        Returns aggregated weekly stats including total detections and unique species.
-        """
+        """Weekly totals, unique species and daily averages."""
         cutoff_date = date.today() - timedelta(days=months * 30)
+        cnt = _count_column(DetectionRollup, min_confidence)
+
+        year = func.strftime('%Y', DetectionRollup.detection_date).label('year')
+        week = func.strftime('%W', DetectionRollup.detection_date).label('week')
 
         query = (
             self.db.query(
-                func.strftime('%Y', Detection.detection_date).label('year'),
-                func.strftime('%W', Detection.detection_date).label('week'),
-                func.min(Detection.detection_date).label('week_start'),
-                func.count(Detection.id).label('total_detections'),
-                func.count(func.distinct(Detection.species_id)).label('unique_species'),
-                func.count(func.distinct(Detection.detection_date)).label('days_with_data')
+                year,
+                week,
+                func.min(DetectionRollup.detection_date).label('week_start'),
+                func.sum(cnt).label('total_detections'),
+                func.count(func.distinct(DetectionRollup.species_id)).label('unique_species'),
+                func.count(func.distinct(DetectionRollup.detection_date)).label('days_with_data'),
             )
-            .filter(Detection.detection_date >= cutoff_date)
-            .filter(Detection.confidence >= min_confidence)
+            .filter(DetectionRollup.detection_date >= cutoff_date)
+            .filter(cnt > 0)
         )
+        query = self._scoped(query, station_ids)
 
-        if station_ids:
-            query = query.filter(Detection.station_id.in_(station_ids))
-
-        weekly_data = (
-            query
-            .group_by(
-                func.strftime('%Y', Detection.detection_date),
-                func.strftime('%W', Detection.detection_date)
-            )
-            .order_by(
-                func.strftime('%Y', Detection.detection_date),
-                func.strftime('%W', Detection.detection_date)
-            )
-            .all()
-        )
+        rows = query.group_by(year, week).order_by(year, week).all()
 
         results = []
-        for row in weekly_data:
-            avg_daily = row.total_detections / max(row.days_with_data, 1)
+        for row in rows:
+            total = int(row.total_detections or 0)
+            if total == 0:
+                continue
+            avg_daily = total / max(int(row.days_with_data or 1), 1)
             results.append({
                 'week_start': row.week_start,
                 'year': int(row.year),
                 'week_number': int(row.week) + 1,
-                'total_detections': row.total_detections,
-                'unique_species': row.unique_species,
-                'avg_daily_detections': round(avg_daily, 1)
+                'total_detections': total,
+                'unique_species': int(row.unique_species or 0),
+                'avg_daily_detections': round(avg_daily, 1),
             })
 
         return results
+
+    # How a "co-occurrence slot" is defined. Pooling by date alone is
+    # degenerate once several stations are involved: every common species is
+    # detected somewhere every day, so every Jaccard index is 1.00 and the
+    # matrix is a single flat colour.
+    CO_OCCURRENCE_GRAINS = {
+        "hour": (DetectionRollup.station_id, DetectionRollup.detection_date,
+                 DetectionRollup.hour),
+        "day": (DetectionRollup.station_id, DetectionRollup.detection_date),
+        "date": (DetectionRollup.detection_date,),
+    }
 
     def get_co_occurrence_matrix(
         self,
         station_ids: Optional[List[int]] = None,
         months: int = 6,
         min_confidence: float = 0.7,
-        limit: int = 20
+        limit: int = 20,
+        granularity: str = "day",
     ) -> List[dict]:
         """
-        Get species co-occurrence data for matrix visualization.
+        Jaccard similarity between species, over shared detection slots.
 
-        Returns Jaccard similarity index for species pairs based on
-        days they were both detected.
+        ``granularity`` sets what counts as "together":
+
+        * ``day`` (default) - same station, same date. Keeps real contrast
+          across the matrix while still requiring the two species to have been
+          heard at the same place.
+        * ``hour`` - same station, same date, same hour. Statistically the
+          sharpest, but the values land low enough that the matrix can read as
+          uniformly pale.
+        * ``date`` - same date anywhere. The original behaviour; saturates at
+          1.00 for every common species once more than a couple of stations
+          report, so it is only meaningful on a single-station database.
         """
+        grain = self.CO_OCCURRENCE_GRAINS.get(granularity)
+        if grain is None:
+            raise ValueError(f"Unknown granularity {granularity!r}")
+
         cutoff_date = date.today() - timedelta(days=months * 30)
+        cnt = _count_column(DetectionRollup, min_confidence)
 
-        # Get top species
-        top_species_query = (
-            self.db.query(
-                Species.id,
-                Species.common_name,
-                func.count(func.distinct(Detection.detection_date)).label('total_days')
-            )
-            .join(Detection, Detection.species_id == Species.id)
-            .filter(Detection.detection_date >= cutoff_date)
-            .filter(Detection.confidence >= min_confidence)
+        top = self._top_species_ids(
+            cnt, cutoff_date, None, station_ids, limit, order_by_days=True
         )
-
-        if station_ids:
-            top_species_query = top_species_query.filter(
-                Detection.station_id.in_(station_ids)
-            )
-
-        top_species = (
-            top_species_query
-            .group_by(Species.id, Species.common_name)
-            .order_by(func.count(func.distinct(Detection.detection_date)).desc())
-            .limit(limit)
-            .all()
-        )
-
-        species_info = {s.id: (s.common_name, s.total_days) for s in top_species}
-        species_ids = list(species_info.keys())
-
-        if len(species_ids) < 2:
+        if len(top) < 2:
             return []
 
-        # Get all detection dates for all species in a single query (optimized)
-        dates_query = (
-            self.db.query(
-                Detection.species_id,
-                Detection.detection_date
-            )
-            .filter(Detection.species_id.in_(species_ids))
-            .filter(Detection.detection_date >= cutoff_date)
-            .filter(Detection.confidence >= min_confidence)
+        species_ids = [sid for sid, _ in top]
+        # Reported as "total days" in the tooltip regardless of grain: active
+        # days is the number a reader can interpret, where a slot count is not.
+        active_days = dict(top)
+        info = self._species_lookup(species_ids)
+
+        slots_query = (
+            self.db.query(DetectionRollup.species_id, *grain)
+            .filter(DetectionRollup.species_id.in_(species_ids))
+            .filter(DetectionRollup.detection_date >= cutoff_date)
+            .filter(cnt > 0)
             .distinct()
         )
+        slots_query = self._scoped(slots_query, station_ids)
 
-        if station_ids:
-            dates_query = dates_query.filter(Detection.station_id.in_(station_ids))
+        species_slots = {sid: set() for sid in species_ids}
+        for row in slots_query.all():
+            species_slots[row[0]].add(tuple(row[1:]))
 
-        all_dates = dates_query.all()
-
-        # Group dates by species
-        species_dates = {sid: set() for sid in species_ids}
-        for row in all_dates:
-            species_dates[row.species_id].add(row.detection_date)
-
-        # Calculate co-occurrence matrix
         results = []
         for i, sp1_id in enumerate(species_ids):
-            for sp2_id in species_ids[i:]:  # Include diagonal for total days
-                sp1_name, sp1_total = species_info[sp1_id]
-                sp2_name, sp2_total = species_info[sp2_id]
+            for sp2_id in species_ids[i:]:
+                sp1_name = info.get(sp1_id, ('Unknown', ''))[0]
+                sp2_name = info.get(sp2_id, ('Unknown', ''))[0]
 
-                sp1_dates = species_dates[sp1_id]
-                sp2_dates = species_dates[sp2_id]
+                sp1_slots = species_slots[sp1_id]
+                sp2_slots = species_slots[sp2_id]
 
-                intersection = len(sp1_dates & sp2_dates)
-                union = len(sp1_dates | sp2_dates)
-
+                intersection = len(sp1_slots & sp2_slots)
+                union = len(sp1_slots | sp2_slots)
                 jaccard = intersection / union if union > 0 else 0
 
                 results.append({
                     'species_1': sp1_name,
                     'species_2': sp2_name,
                     'co_occurrence_days': intersection,
-                    'species_1_total_days': sp1_total,
-                    'species_2_total_days': sp2_total,
-                    'jaccard_index': round(jaccard, 3)
+                    'species_1_total_days': active_days[sp1_id],
+                    'species_2_total_days': active_days[sp2_id],
+                    'jaccard_index': round(jaccard, 3),
                 })
 
-                # Add reverse entry if not diagonal
                 if sp1_id != sp2_id:
                     results.append({
                         'species_1': sp2_name,
                         'species_2': sp1_name,
                         'co_occurrence_days': intersection,
-                        'species_1_total_days': sp2_total,
-                        'species_2_total_days': sp1_total,
-                        'jaccard_index': round(jaccard, 3)
+                        'species_1_total_days': active_days[sp2_id],
+                        'species_2_total_days': active_days[sp1_id],
+                        'jaccard_index': round(jaccard, 3),
                     })
 
         return results
@@ -812,90 +902,69 @@ class AnalyticsRepository:
         min_confidence: float = 0.7,
         limit: int = 50
     ) -> List[dict]:
-        """
-        Get first/last sighting and peak month for each species.
+        """First/last sighting, peak month and active days per species."""
+        cnt = _count_column(DetectionRollup, min_confidence)
+        total = func.sum(cnt)
 
-        Returns seasonality data for timeline visualization.
-        """
         query = (
             self.db.query(
-                Species.id,
-                Species.common_name,
-                func.min(Detection.detection_date).label('first_seen'),
-                func.max(Detection.detection_date).label('last_seen'),
-                func.count(Detection.id).label('total_detections'),
-                func.count(func.distinct(Detection.detection_date)).label('active_days')
+                DetectionRollup.species_id,
+                func.min(DetectionRollup.detection_date).label('first_seen'),
+                func.max(DetectionRollup.detection_date).label('last_seen'),
+                total.label('total_detections'),
+                func.count(func.distinct(DetectionRollup.detection_date)).label('active_days'),
             )
-            .join(Detection, Detection.species_id == Species.id)
-            .filter(Detection.confidence >= min_confidence)
+            .filter(cnt > 0)
         )
-
-        if station_ids:
-            query = query.filter(Detection.station_id.in_(station_ids))
+        query = self._scoped(query, station_ids)
 
         base_results = (
-            query
-            .group_by(Species.id, Species.common_name)
-            .order_by(func.count(Detection.id).desc())
+            query.group_by(DetectionRollup.species_id)
+            .order_by(total.desc())
             .limit(limit)
             .all()
         )
 
-        species_ids = [r.id for r in base_results]
-        species_data = {r.id: r for r in base_results}
+        species_ids = [r.species_id for r in base_results]
+        if not species_ids:
+            return []
 
-        # Get peak month for all species in a single query (optimized)
-        # Using subquery to find max count per species, then join to get month
+        species_data = {r.species_id: r for r in base_results}
+        info = self._species_lookup(species_ids)
+
+        month = func.strftime('%m', DetectionRollup.detection_date).label('month')
         monthly_query = (
             self.db.query(
-                Detection.species_id,
-                func.strftime('%m', Detection.detection_date).label('month'),
-                func.count(Detection.id).label('count')
+                DetectionRollup.species_id,
+                month,
+                func.sum(cnt).label('count'),
             )
-            .filter(Detection.species_id.in_(species_ids))
-            .filter(Detection.confidence >= min_confidence)
+            .filter(DetectionRollup.species_id.in_(species_ids))
+            .filter(cnt > 0)
         )
+        monthly_query = self._scoped(monthly_query, station_ids)
 
-        if station_ids:
-            monthly_query = monthly_query.filter(Detection.station_id.in_(station_ids))
-
-        monthly_counts = (
-            monthly_query
-            .group_by(Detection.species_id, func.strftime('%m', Detection.detection_date))
-            .all()
-        )
-
-        # Find peak month for each species from the results
-        species_month_counts = {}
-        for row in monthly_counts:
-            sid = row.species_id
-            if sid not in species_month_counts or row.count > species_month_counts[sid][1]:
-                species_month_counts[sid] = (int(row.month), row.count)
-
-        peak_months = {sid: data[0] for sid, data in species_month_counts.items()}
-        # Default to 1 for any species not found
-        for sid in species_ids:
-            if sid not in peak_months:
-                peak_months[sid] = 1
-
-        month_names = [
-            '', 'January', 'February', 'March', 'April', 'May', 'June',
-            'July', 'August', 'September', 'October', 'November', 'December'
-        ]
+        peak_months = {}
+        best_counts = {}
+        for row in monthly_query.group_by(DetectionRollup.species_id, month).all():
+            count = int(row.count or 0)
+            if count > best_counts.get(row.species_id, -1):
+                best_counts[row.species_id] = count
+                peak_months[row.species_id] = int(row.month)
 
         results = []
         for species_id in species_ids:
             data = species_data[species_id]
             peak_month = peak_months.get(species_id, 1)
             results.append({
-                'species_id': data.id,
-                'common_name': data.common_name,
+                'species_id': species_id,
+                'common_name': info.get(species_id, ('Unknown', ''))[0],
                 'first_seen': data.first_seen,
                 'last_seen': data.last_seen,
                 'peak_month': peak_month,
-                'peak_month_name': month_names[peak_month],
-                'total_detections': data.total_detections,
-                'active_days': data.active_days
+                'peak_month_name': MONTH_NAMES[peak_month],
+                'total_detections': int(data.total_detections or 0),
+                'active_days': int(data.active_days or 0),
             })
 
         return results
@@ -906,86 +975,58 @@ class AnalyticsRepository:
         year: Optional[int] = None,
         min_confidence: float = 0.7
     ) -> List[dict]:
-        """
-        Get the top species for each month over the rolling 12 months.
-
-        Returns the most detected species per month with their counts.
-        Optimized: Uses single query to get all monthly data, then processes in Python.
-        """
-        month_names = [
-            '', 'January', 'February', 'March', 'April', 'May', 'June',
-            'July', 'August', 'September', 'October', 'November', 'December'
-        ]
-
+        """The most-detected species for each of the rolling 12 months."""
         today = date.today()
-
-        # Calculate date range for rolling 12 months
         start_date = date(today.year - 1, today.month, 1)
+        cnt = _count_column(DetectionRollup, min_confidence)
 
-        # Single query to get all species counts by year-month (optimized)
+        year_col = func.strftime('%Y', DetectionRollup.detection_date).label('year')
+        month_col = func.strftime('%m', DetectionRollup.detection_date).label('month')
+
         query = (
             self.db.query(
-                func.strftime('%Y', Detection.detection_date).label('year'),
-                func.strftime('%m', Detection.detection_date).label('month'),
-                Species.id.label('species_id'),
-                Species.common_name,
-                func.count(Detection.id).label('detection_count')
+                year_col,
+                month_col,
+                DetectionRollup.species_id,
+                func.sum(cnt).label('detection_count'),
             )
-            .join(Species, Detection.species_id == Species.id)
-            .filter(Detection.detection_date >= start_date)
-            .filter(Detection.detection_date <= today)
-            .filter(Detection.confidence >= min_confidence)
+            .filter(DetectionRollup.detection_date >= start_date)
+            .filter(DetectionRollup.detection_date <= today)
+            .filter(cnt > 0)
         )
+        query = self._scoped(query, station_ids)
 
-        if station_ids:
-            query = query.filter(Detection.station_id.in_(station_ids))
+        rows = query.group_by(year_col, month_col, DetectionRollup.species_id).all()
 
-        monthly_data = (
-            query
-            .group_by(
-                func.strftime('%Y', Detection.detection_date),
-                func.strftime('%m', Detection.detection_date),
-                Species.id,
-                Species.common_name
-            )
-            .all()
-        )
-
-        # Process results to find champion and total for each month
-        month_stats = {}  # (year, month) -> {'species': {...}, 'total': int}
-
-        for row in monthly_data:
+        month_stats = defaultdict(lambda: {'species': {}, 'total': 0})
+        for row in rows:
+            count = int(row.detection_count or 0)
+            if count == 0:
+                continue
             key = (int(row.year), int(row.month))
-            if key not in month_stats:
-                month_stats[key] = {'species': {}, 'total': 0}
+            month_stats[key]['species'][row.species_id] = count
+            month_stats[key]['total'] += count
 
-            month_stats[key]['species'][row.species_id] = {
-                'common_name': row.common_name,
-                'count': row.detection_count
-            }
-            month_stats[key]['total'] += row.detection_count
+        all_species = {sid for stats in month_stats.values() for sid in stats['species']}
+        info = self._species_lookup(list(all_species))
 
-        # Build results sorted by date
         results = []
-        for (year, month), stats in sorted(month_stats.items()):
+        for (yr, month), stats in sorted(month_stats.items()):
             if stats['total'] == 0:
                 continue
 
-            # Find top species for this month
-            top_species_id = max(stats['species'].keys(), key=lambda sid: stats['species'][sid]['count'])
-            top_species = stats['species'][top_species_id]
-
-            percentage = (top_species['count'] / stats['total']) * 100
-            month_label = f"{month_names[month]} {year}"
+            top_species_id = max(stats['species'], key=stats['species'].get)
+            count = stats['species'][top_species_id]
+            percentage = (count / stats['total']) * 100
 
             results.append({
                 'month': month,
-                'month_name': month_label,
-                'year': year,
+                'month_name': f"{MONTH_NAMES[month]} {yr}",
+                'year': yr,
                 'species_id': top_species_id,
-                'common_name': top_species['common_name'],
-                'detection_count': top_species['count'],
-                'percentage_of_month': round(percentage, 1)
+                'common_name': info.get(top_species_id, ('Unknown', ''))[0],
+                'detection_count': count,
+                'percentage_of_month': round(percentage, 1),
             })
 
         return results

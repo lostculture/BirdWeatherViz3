@@ -90,7 +90,7 @@ jobs:
           python3 -m venv backend/.venv
           backend/.venv/bin/python -m pip install --upgrade pip
           backend/.venv/bin/python -m pip install -r backend/requirements.txt
-          backend/.venv/bin/python -c "import fastapi, sqlalchemy, plotly; print('backend deps ok')"
+          backend/.venv/bin/python -c "import fastapi, sqlalchemy, bcrypt, apscheduler; print('backend deps ok')"
 
       - name: Backend venv + deps (Windows)
         if: runner.os == 'Windows'
@@ -99,7 +99,7 @@ jobs:
           python -m venv backend\.venv
           backend\.venv\Scripts\python.exe -m pip install --upgrade pip
           backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-          backend\.venv\Scripts\python.exe -c "import fastapi, sqlalchemy, plotly; print('backend deps ok')"
+          backend\.venv\Scripts\python.exe -c "import fastapi, sqlalchemy, bcrypt, apscheduler; print('backend deps ok')"
 
       - name: Frontend install
         working-directory: frontend
@@ -128,8 +128,15 @@ jobs:
     env:
       CONFIG_PASSWORD: smoke-test-password
       JWT_SECRET: smoke-test-jwt-secret-that-is-32-chars-long-ok
+      # Required by the compose file's bind mount since v2.2.0. Without it
+      # `docker compose up` aborts on the ${DATA_DIR:?...} guard before
+      # starting anything, which is why this job had been failing since April.
+      DATA_DIR: ${{ github.workspace }}/smoke-data
     steps:
       - uses: actions/checkout@v5
+
+      - name: Create data directory for the bind mount
+        run: mkdir -p "${DATA_DIR}"
 
       - name: Start services
         run: docker compose -f docker-compose.public-test.yml up -d

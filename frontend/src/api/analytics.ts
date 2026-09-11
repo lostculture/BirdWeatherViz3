@@ -48,10 +48,46 @@ export interface TemporalDistribution {
   detection_count: number
 }
 
+export interface ChorusSpecies {
+  species_id: number
+  common_name: string
+  english_name?: string | null
+  detection_count: number
+}
+
 export interface DawnChorusPoint {
   minutes_from_sunrise: number
   detection_count: number
   species_count: number
+  /** Most-detected species in this bin, for the hover tooltip. */
+  top_species: ChorusSpecies[]
+}
+
+export interface DuskChorusPoint {
+  minutes_from_sunset: number
+  detection_count: number
+  species_count: number
+  /** Most-detected species in this bin, for the hover tooltip. */
+  top_species: ChorusSpecies[]
+}
+
+export interface RollupTableState {
+  name: string
+  last_detection_id: number
+  status: 'idle' | 'building' | 'error'
+  rows_processed: number
+  total_rows: number
+  message: string | null
+  updated_at: string | null
+}
+
+export interface RollupStatus {
+  detection: RollupTableState
+  solar: RollupTableState
+  max_detection_id: number
+  detections_pending: number
+  ready: boolean
+  building: boolean
 }
 
 export interface WeatherImpact {
@@ -154,6 +190,8 @@ export const analyticsApi = {
     station_ids?: string
     min_confidence?: number
     limit?: number
+    /** 'calendar' folds every year onto one Jan-Dec axis. */
+    mode?: 'rolling' | 'calendar'
   }): Promise<TemporalDistribution[]> => {
     return apiClient.get<TemporalDistribution[]>('/analytics/temporal-distribution', params)
   },
@@ -168,6 +206,25 @@ export const analyticsApi = {
     window_minutes?: number
   }): Promise<DawnChorusPoint[]> => {
     return apiClient.get<DawnChorusPoint[]>('/analytics/dawn-chorus', params)
+  },
+
+  /**
+   * Get dusk chorus analysis data (sunset-relative)
+   */
+  getDuskChorus: async (params?: {
+    station_ids?: string
+    months?: number
+    min_confidence?: number
+    window_minutes?: number
+  }): Promise<DuskChorusPoint[]> => {
+    return apiClient.get<DuskChorusPoint[]>('/analytics/dusk-chorus', params)
+  },
+
+  /**
+   * Get the build state of the analytics rollups.
+   */
+  getRollupStatus: async (): Promise<RollupStatus> => {
+    return apiClient.get<RollupStatus>('/analytics/rollups/status')
   },
 
   /**
@@ -197,6 +254,8 @@ export const analyticsApi = {
    * Get species co-occurrence matrix data
    */
   getCoOccurrence: async (params?: {
+    /** What counts as co-occurring. 'date' saturates at 1.0 on multi-station data. */
+    granularity?: 'hour' | 'day' | 'date'
     station_ids?: string
     months?: number
     min_confidence?: number

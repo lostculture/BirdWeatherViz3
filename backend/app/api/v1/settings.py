@@ -847,6 +847,14 @@ async def upload_detections_csv(
 
         db.commit()
 
+        # Fold the uploaded detections into the analytics rollups.
+        if detections_added > 0:
+            try:
+                from app.services import rollups
+                rollups.refresh_in_background()
+            except Exception as e:
+                logger.warning(f"Could not schedule rollup refresh: {e}")
+
         return DetectionUploadResponse(
             success=True,
             detections_added=detections_added,
@@ -1077,6 +1085,14 @@ async def upload_detections_csv_stream(
                 }) + "\n"
 
         db.commit()
+
+        # Fold the uploaded detections into the analytics rollups.
+        if detections_added > 0:
+            try:
+                from app.services import rollups
+                rollups.refresh_in_background()
+            except Exception as e:
+                logger.warning(f"Could not schedule rollup refresh: {e}")
 
         yield json.dumps({
             "type": "complete",

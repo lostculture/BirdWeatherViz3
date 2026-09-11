@@ -15,6 +15,7 @@ const FilterBar: React.FC = () => {
     stationIds,
     stations,
     loading,
+    stationsError,
     setDateRange,
     setStationIds,
     clearFilters,
@@ -74,6 +75,16 @@ const FilterBar: React.FC = () => {
           {/* Station Filters — not a form control, use a plain text span */}
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-600">Stations:</span>
+            {stationsError && (
+              <span className="text-xs text-red-600">
+                {stationsError} — check the backend is reachable
+              </span>
+            )}
+            {!stationsError && stations.length === 0 && (
+              <span className="text-xs text-gray-500 italic">
+                No stations configured — add one in Config
+              </span>
+            )}
             <div className="flex flex-wrap gap-1">
               {stations.map((station) => (
                 <button type="button"

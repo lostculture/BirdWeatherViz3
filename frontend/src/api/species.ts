@@ -8,10 +8,27 @@
 import type {
   FamilyStats,
   NewSpeciesThisWeek,
+  OverdueSpecies,
+  ReturningSpecies,
   SpeciesDiscoveryCurve,
   SpeciesDiversityTrend,
   SpeciesResponse,
 } from '../types/api'
+
+export interface TaxonomyBackfillState {
+  status: 'idle' | 'running' | 'error'
+  processed: number
+  total: number
+  updated: number
+  unresolved: number
+  skipped: number
+  failures: string[]
+  message: string | null
+  started_at: string | null
+  finished_at: string | null
+  /** Species currently missing order or family. */
+  missing: number
+}
 import { apiClient } from './client'
 
 export interface HourlyPattern {
@@ -90,6 +107,53 @@ export const speciesApi = {
     station_ids?: string
   }): Promise<NewSpeciesThisWeek[]> => {
     return apiClient.get<NewSpeciesThisWeek[]>('/species/new/this-week', params)
+  },
+
+  /**
+   * Get species heard again after a long absence — the returning migrants.
+   */
+  getReturning: async (params?: {
+    station_ids?: string
+    recent_days?: number
+    min_absence_days?: number
+  }): Promise<ReturningSpecies[]> => {
+    return apiClient.get<ReturningSpecies[]>('/species/returning', params)
+  },
+
+  /**
+   * Get species that previous years say should be present now, but aren't.
+   */
+  getOverdue: async (params?: {
+    station_ids?: string
+    absent_days?: number
+    window_days?: number
+    min_prior_years?: number
+  }): Promise<OverdueSpecies[]> => {
+    return apiClient.get<OverdueSpecies[]>('/species/overdue', params)
+  },
+
+  /**
+   * Taxonomy backfill state: how many species lack order/family, plus any run
+   * in progress.
+   */
+  getTaxonomyBackfill: async (params?: {
+    detected_only?: boolean
+  }): Promise<TaxonomyBackfillState> => {
+    return apiClient.get<TaxonomyBackfillState>('/species/taxonomy/backfill', params)
+  },
+
+  /**
+   * Start filling missing order/family from iNaturalist, in the background.
+   */
+  startTaxonomyBackfill: async (params?: {
+    detected_only?: boolean
+    limit?: number
+  }): Promise<{ started: boolean; missing: number }> => {
+    return apiClient.post<{ started: boolean; missing: number }>(
+      '/species/taxonomy/backfill',
+      undefined,
+      { params },
+    )
   },
 
   /**

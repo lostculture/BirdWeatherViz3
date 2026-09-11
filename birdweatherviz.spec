@@ -32,7 +32,9 @@ hidden_imports = [
     'app.api.v1.settings',
     'app.api.v1.species',
     'app.api.v1.stations',
+    'app.api.v1.system',
     'app.api.v1.weather',
+    'app.api.v1.nocturnal',
     'app.api.deps',
     # Database
     'app.db.session',
@@ -46,16 +48,22 @@ hidden_imports = [
     'app.db.models.station',
     'app.db.models.taxonomy_translation',
     'app.db.models.detection_day_verification',
+    'app.db.models.rollup',
     'app.db.models.weather',
     # Repositories
     'app.repositories.analytics',
     'app.repositories.base',
     'app.repositories.detection',
+    'app.repositories.nocturnal',
     'app.repositories.species',
     'app.repositories.station',
     # Services
     'app.services.birdweather',
     'app.services.inaturalist',
+    'app.services.rollups',
+    'app.services.solar',
+    'app.services.taxonomy_backfill',
+    'app.services.taxonomy_groups',
     'app.services.taxonomy_translations',
     'app.services.weather',
     # Schemas
@@ -162,6 +170,6 @@ if is_macos:
         bundle_identifier='com.lostculture.birdweatherviz3',
         info_plist={
             'NSHighResolutionCapable': 'True',
-            'CFBundleShortVersionString': '2.2.2',
+            'CFBundleShortVersionString': '2.3.0',
         },
     )

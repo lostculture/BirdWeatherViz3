@@ -129,7 +129,9 @@ const StationComparison: React.FC = () => {
 
       // Merge station stats with coordinates from station list
       const stationCoordsMap = new Map<number, StationResponse>()
-      stationList.forEach((s: StationResponse) => stationCoordsMap.set(s.station_id, s))
+      stationList.forEach((s: StationResponse) => {
+        stationCoordsMap.set(s.station_id, s)
+      })
 
       const stationsWithCoords: StationStatsWithCoords[] = statsData.map((stat) => ({
         ...stat,
@@ -175,7 +177,9 @@ const StationComparison: React.FC = () => {
     // Get all unique species names across all stations
     const allSpeciesNames = new Set<string>()
     for (const speciesList of Object.values(speciesByStation)) {
-      speciesList.forEach((sp) => allSpeciesNames.add(sp.common_name))
+      speciesList.forEach((sp) => {
+        allSpeciesNames.add(sp.common_name)
+      })
     }
 
     // For each species, determine which stations have it
@@ -410,7 +414,7 @@ const StationComparison: React.FC = () => {
     const yAxisMax = Math.ceil(maxCount / tickInterval) * tickInterval + tickInterval // One tick above max
 
     // Create annotations for left-aligned station names (positioned in left margin)
-    const stationAnnotations: Partial<import('plotly.js').Annotations>[] = stationNames.map(
+    const stationAnnotations: Partial<import('plotly.js').Annotation>[] = stationNames.map(
       (name, i) => ({
         x: -0.17, // Position in left margin (negative = left of plot area)
         y: i,

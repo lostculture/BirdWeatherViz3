@@ -15,6 +15,8 @@ interface FilterState {
   stationIds: number[]
   stations: StationResponse[]
   loading: boolean
+  /** Set when the station list could not be fetched, so the bar can say so. */
+  stationsError: string | null
 }
 
 interface FilterContextType extends FilterState {
@@ -32,6 +34,7 @@ export const FilterProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [stationIds, setStationIdsState] = useState<number[]>([])
   const [stations, setStations] = useState<StationResponse[]>([])
   const [loading, setLoading] = useState(true)
+  const [stationsError, setStationsError] = useState<string | null>(null)
 
   // Load stations on mount
   useEffect(() => {
@@ -40,10 +43,15 @@ export const FilterProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const loadStations = async () => {
     try {
-      const stationList = await stationsApi.getAll({ active_only: true })
+      // Every station, not just the active ones. A station missing from this
+      // list cannot be selected anywhere in the app, and issue #22 was exactly
+      // that: stations with no `active` flag disappeared from the filter bar.
+      const stationList = await stationsApi.getAll()
       setStations(stationList)
+      setStationsError(null)
     } catch (err) {
       console.error('Failed to load stations for filter:', err)
+      setStationsError('Could not load stations')
     } finally {
       setLoading(false)
     }
@@ -80,6 +88,7 @@ export const FilterProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         stationIds,
         stations,
         loading,
+        stationsError,
         setDateRange,
         setStationIds,
         clearFilters,

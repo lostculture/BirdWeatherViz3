@@ -27,13 +27,22 @@ class StationRepository(BaseRepository[Station]):
         ).first()
 
     def get_active_stations(self) -> List[Station]:
-        """Get all active stations (included in analysis)."""
-        return self.db.query(Station).filter(Station.active == True).all()
+        """
+        Get all active stations (included in analysis).
+
+        A NULL `active` counts as active. The column has a Python-side default,
+        so rows written before it existed - or by an import path that never set
+        it - hold NULL and were silently excluded from every active_only query.
+        That is what emptied the station filter bar in issue #22.
+        """
+        return self.db.query(Station).filter(
+            (Station.active == True) | (Station.active.is_(None))
+        ).all()
 
     def get_auto_update_stations(self) -> List[Station]:
         """Get all stations with auto-update enabled."""
         return self.db.query(Station).filter(
-            Station.active == True,
+            (Station.active == True) | (Station.active.is_(None)),
             Station.auto_update == True
         ).all()
 
